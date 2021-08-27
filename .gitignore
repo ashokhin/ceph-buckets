@@ -1,0 +1,4 @@
+ceph-buckets
+ceph_credentials.yml
+ceph_config.yml
+app_buckets_config.txt
