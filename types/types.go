@@ -43,7 +43,7 @@ type Buckets map[string]Bucket
 
 func (conf *Config) SetDefaults() {
 	if conf.EndpointUrl == "" {
-		conf.EndpointUrl = "127.0.0.1:8080"
+		conf.EndpointUrl = "127.0.0.1:8880"
 	}
 }
 
