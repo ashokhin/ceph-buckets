@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/ashokhin/ceph-buckets/types"
@@ -154,7 +155,7 @@ func createS3SvcClient(credsPath *string) (*types.Config, *s3.S3) {
 	return yamlConfig, svc
 }
 
-func getS3Config(credsPath *string) map[string]types.Bucket {
+func getS3Config(credsPath *string) types.Buckets {
 	_, svc := createS3SvcClient(credsPath)
 	// Create Bucket
 	/* 	log.Warn("Create bucket! ", bucket)
@@ -217,7 +218,7 @@ func getS3Config(credsPath *string) map[string]types.Bucket {
 
 	log.Info("Buckets listed successfully")
 
-	buckets := make(map[string]types.Bucket)
+	buckets := make(types.Buckets)
 
 	for _, bucket := range listResult.Buckets {
 		var b types.Bucket
@@ -346,8 +347,8 @@ func createS3ConfigFile(confPath string, credsPath string) int {
 	return exitCode
 }
 
-func loadS3ConfigFile(fs *string) (map[string]types.Bucket, bool) {
-	cfg := make(map[string]types.Bucket)
+func loadS3ConfigFile(fs *string) (types.Buckets, bool) {
+	cfg := make(types.Buckets)
 	f, readOk := readFile(fs)
 
 	if !readOk {
@@ -408,7 +409,7 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	} else {
 		log.Warn("Create new configuration")
 
-		confBuckets = make(map[string]types.Bucket)
+		confBuckets = make(types.Buckets)
 	}
 
 	for _, appBucket := range appBuckets {
@@ -424,7 +425,6 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		log.Infof("Bucket %q is new. Add in %q", appBucket, confPath)
 
 		needUpdate = true
-		b.BucketType = "new"
 		// Versioning disabled by default
 		b.Versioning = "disabled"
 		confBuckets[appBucket] = b
@@ -449,8 +449,55 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	return 0
 }
 
-func compareConfigs(lc types.Buckets, sc types.Buckets) types.Buckets {
+func aclEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
+	var changed bool
 
+	if !reflect.DeepEqual(lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl) {
+		log.Debugf("%+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
+		changed = true
+	}
+	if !reflect.DeepEqual(lc.Acl.Grants.Read, sc.Acl.Grants.Read) {
+		log.Debugf("%+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
+		changed = true
+	}
+	if !reflect.DeepEqual(lc.Acl.Grants.Write, sc.Acl.Grants.Write) {
+		log.Debugf("%+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
+		changed = true
+	}
+
+	log.Infof("Changed: %+v", changed)
+
+	return changed
+
+}
+
+func compareConfigs(lc types.Buckets, sc types.Buckets) types.Buckets {
+	newCfg := make(types.Buckets)
+
+	for k, v := range lc {
+
+		if sc.HasKey(k) {
+			log.Debugf("Bucket %q already exist on server", k)
+			log.Debugf("Add server struct to result config: %+v", sc[k])
+
+			newCfgBucket := sc[k]
+
+			if !aclEqual(&v, sc[k], &k) {
+				log.Debugf("Apply new ACL for bucket %q", k)
+				newCfgBucket.Acl.Grants.FullControl = v.Acl.Grants.FullControl
+				newCfgBucket.Acl.Grants.Read = v.Acl.Grants.Read
+				newCfgBucket.Acl.Grants.Write = v.Acl.Grants.Write
+				newCfgBucket.AclType = "new"
+			}
+
+			newCfg[k] = newCfgBucket
+
+		} else {
+			newCfg[k] = v
+			v.BucketType = "new"
+		}
+
+	}
 	return make(types.Buckets)
 }
 
@@ -460,7 +507,7 @@ func applyS3Config(confPath string, credsPath string) int {
 	localCfg, loadOk := loadS3ConfigFile(&confPath)
 
 	if !loadOk {
-		log.Errorf("Error loading file %q")
+		log.Errorf("Error loading file %q", localCfg)
 		return 1
 	}
 
