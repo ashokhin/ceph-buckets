@@ -453,15 +453,15 @@ func aclEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
 	var changed bool
 
 	if !reflect.DeepEqual(lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl) {
-		log.Debugf("%+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
+		log.Debugf("FullControl %+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
 		changed = true
 	}
 	if !reflect.DeepEqual(lc.Acl.Grants.Read, sc.Acl.Grants.Read) {
-		log.Debugf("%+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
+		log.Debugf("Read %+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
 		changed = true
 	}
 	if !reflect.DeepEqual(lc.Acl.Grants.Write, sc.Acl.Grants.Write) {
-		log.Debugf("%+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
+		log.Debugf("Write %+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
 		changed = true
 	}
 
@@ -498,7 +498,7 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) types.Buckets {
 		}
 
 	}
-	return make(types.Buckets)
+	return newCfg
 }
 
 func applyS3Config(confPath string, credsPath string) int {
