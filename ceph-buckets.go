@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/ashokhin/ceph-buckets/types"
@@ -15,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/iancoleman/strcase"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
 	yaml "gopkg.in/yaml.v3"
@@ -126,7 +128,7 @@ func writeConfig(cfg interface{}, fs *string) error {
 func createS3SvcClient(credsPath *string) (*types.Config, *s3.S3) {
 	var sess *session.Session
 
-	log.Infof("Loading S3 configuration from %q", *credsPath)
+	log.Infof("Loading S3 connection settings from %q", *credsPath)
 
 	yamlConfig, loadOk := loadConfig(credsPath)
 
@@ -231,7 +233,10 @@ func getS3Config(credsPath *string) types.Buckets {
 
 		if err != nil {
 			log.Errorf("Error retriving bucket ACL: %q", err.Error())
+
+			b.AclType = "error"
 		} else {
+			log.Debugf("Bucket: %q, ACL: %+v", *bucket.Name, aclResult)
 
 			for _, grants := range aclResult.Grants {
 				if *grants.Permission == "FULL_CONTROL" {
@@ -247,6 +252,7 @@ func getS3Config(credsPath *string) types.Buckets {
 
 			b.Acl.Owner.DisplayName = *aclResult.Owner.DisplayName
 			b.Acl.Owner.Id = *aclResult.Owner.ID
+			b.AclType = "present"
 		}
 
 		log.Debugf("Bucket: %q. Get bucket versioning...", *bucket.Name)
@@ -280,8 +286,10 @@ func getS3Config(credsPath *string) types.Buckets {
 				switch aerr.Code() {
 				case "NoSuchLifecycleConfiguration":
 					log.Debugf("Bucket: %q. Lifecycle configuration not found", *bucket.Name)
+					b.LifecycleType = "present"
 				default:
 					log.Errorf("Error retriving bucket lifecycle: %q", aerr.Error())
+					b.LifecycleType = "error"
 				}
 			} else {
 				log.Errorf("Error (raw) retriving bucket lifecycle: %q", err.Error())
@@ -309,6 +317,7 @@ func getS3Config(credsPath *string) types.Buckets {
 
 				b.LifecycleRules = append(b.LifecycleRules, lfr)
 			}
+			b.LifecycleType = "present"
 		}
 
 		buckets[*bucket.Name] = b
@@ -331,20 +340,18 @@ func getS3Config(credsPath *string) types.Buckets {
 }
 
 func createS3ConfigFile(confPath string, credsPath string) int {
-	var exitCode int
-
 	buckets := getS3Config(&credsPath)
 	log.Infof("Write config to %q", confPath)
+
 	err := writeConfig(&buckets, &confPath)
 
 	if err != nil {
 		log.Errorf("Error writing file %q: %q", confPath, err.Error())
 
-		exitCode = 1
-		return exitCode
+		return 1
 	}
 
-	return exitCode
+	return 0
 }
 
 func loadS3ConfigFile(fs *string) (types.Buckets, bool) {
@@ -372,6 +379,7 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	needUpdate := false
 
 	log.Infof("Read file %q", appPath)
+
 	fc, err := os.Open(appPath)
 
 	if err != nil {
@@ -449,59 +457,255 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	return 0
 }
 
+func arrayIsEqual(a1 []string, a2 []string) bool {
+	sort.Strings(a1)
+	sort.Strings(a2)
+	if len(a1) == len(a2) {
+		for i, v := range a1 {
+			if v != a2[i] {
+				return false
+			}
+		}
+	} else {
+		return false
+	}
+	return true
+}
+
 func aclEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
-	var changed bool
+	log.Debugf("Compare ACLs for bucket %q", *b)
 
 	if !reflect.DeepEqual(lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl) {
-		log.Debugf("FullControl %+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
-		changed = true
-	}
-	if !reflect.DeepEqual(lc.Acl.Grants.Read, sc.Acl.Grants.Read) {
-		log.Debugf("Read %+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
-		changed = true
-	}
-	if !reflect.DeepEqual(lc.Acl.Grants.Write, sc.Acl.Grants.Write) {
-		log.Debugf("Write %+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
-		changed = true
+		log.Debugf("ACL FullControl %+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
+		return false
 	}
 
-	log.Infof("Changed: %+v", changed)
+	if !arrayIsEqual(lc.Acl.Grants.Read, sc.Acl.Grants.Read) {
+		log.Debugf("ACL Read %+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
+		return false
+	}
+	if !arrayIsEqual(lc.Acl.Grants.Write, sc.Acl.Grants.Write) {
+		log.Debugf("ACL Write %+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
+		return false
+	}
 
-	return changed
+	return true
 
 }
 
-func compareConfigs(lc types.Buckets, sc types.Buckets) types.Buckets {
+func lfcIsEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
+	log.Debugf("Compare Lifecycle Configuration for bucket %q", *b)
+
+	if len(lc.LifecycleRules) == len(sc.LifecycleRules) {
+		for i, v := range lc.LifecycleRules {
+			if !reflect.DeepEqual(v, sc.LifecycleRules[i]) {
+				log.Debugf("LC cmp %+v != %+v", v, sc.LifecycleRules[i])
+				return false
+			}
+		}
+
+		for i, v := range sc.LifecycleRules {
+			if !reflect.DeepEqual(v, lc.LifecycleRules[i]) {
+				log.Debugf("LC cmp %+v != %+v", v, lc.LifecycleRules[i])
+				return false
+			}
+		}
+	} else {
+		return false
+	}
+
+	return true
+}
+
+func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
+	var needUpdate bool = false
+
 	newCfg := make(types.Buckets)
+
+	log.Info("Compare local and server's configurations")
 
 	for k, v := range lc {
 
 		if sc.HasKey(k) {
 			log.Debugf("Bucket %q already exist on server", k)
-			log.Debugf("Add server struct to result config: %+v", sc[k])
+			log.Debugf("Add server struct to result configuration: %+v", sc[k])
 
 			newCfgBucket := sc[k]
-
+			// Compare ACLs
 			if !aclEqual(&v, sc[k], &k) {
-				log.Debugf("Apply new ACL for bucket %q", k)
+				log.Infof("Update ACL for bucket %q", k)
 				newCfgBucket.Acl.Grants.FullControl = v.Acl.Grants.FullControl
 				newCfgBucket.Acl.Grants.Read = v.Acl.Grants.Read
 				newCfgBucket.Acl.Grants.Write = v.Acl.Grants.Write
-				newCfgBucket.AclType = "new"
+				newCfgBucket.AclType = "updated"
+				needUpdate = true
+			}
+			// Compare Lifecycle Configurations
+			if len(sc[k].LifecycleRules) > 0 || len(v.LifecycleRules) > 0 {
+				if !lfcIsEqual(&v, sc[k], &k) {
+					log.Infof("Update lifecycle configuration for bucket %q", k)
+					newCfgBucket.LifecycleRules = v.LifecycleRules
+					newCfgBucket.LifecycleType = "updated"
+					needUpdate = true
+				}
+			}
+			// Compare versioning
+			if sc[k].Versioning != v.Versioning {
+				log.Infof("Update versioning configuration for bucket %q", k)
+				log.Debugf("Versioning is %q now", v.Versioning)
+
+				newCfgBucket.Versioning = v.Versioning
+				needUpdate = true
 			}
 
 			newCfg[k] = newCfgBucket
 
 		} else {
-			newCfg[k] = v
+			log.Debugf("Bucket %q doesn't exist on server", k)
+			log.Debugf("Add new bucket to server's configuration: %+v", v)
+
+			v.AclType = "new"
 			v.BucketType = "new"
+			v.LifecycleType = "new"
+			newCfg[k] = v
+			needUpdate = true
 		}
 
 	}
-	return newCfg
+	return newCfg, needUpdate
 }
 
-func applyS3Config(confPath string, credsPath string) int {
+func applyS3Config(c *types.Buckets, credsPath *string) bool {
+	log.Info("Apply new configuration on server")
+
+	_, svc := createS3SvcClient(credsPath)
+
+	for bn, b := range *c {
+		// Create bucket
+		if b.BucketType == "new" {
+			log.Infof("Create bucket %q", bn)
+
+			_, err := svc.CreateBucket(&s3.CreateBucketInput{
+				Bucket: &bn,
+			})
+
+			if err != nil {
+				log.Errorf("Error creating bucket: %q", err.Error())
+
+				return false
+			}
+
+		}
+
+		// Apply ACLs
+		if b.AclType != "present" {
+			log.Infof("Bucket %q: Update ACL", bn)
+			log.Debugf("Bucket %q: Get ACL", bn)
+
+			ba, err := svc.GetBucketAcl(&s3.GetBucketAclInput{
+				Bucket: aws.String(bn),
+			})
+
+			if err != nil {
+				log.Errorf("Error retriving ACL: %q", err.Error())
+
+				return false
+			}
+
+			owner := *ba.Owner.DisplayName
+			ownerId := *ba.Owner.ID
+
+			grants := (s3.GetBucketAclOutput{}).Grants
+
+			for _, g := range b.Acl.Grants.FullControl {
+				newGrantee := s3.Grantee{ID: aws.String(g), Type: aws.String("CanonicalUser")}
+				newGrant := s3.Grant{Grantee: &newGrantee, Permission: aws.String("FULL_CONTROL")}
+				grants = append(grants, &newGrant)
+			}
+
+			for _, g := range b.Acl.Grants.Read {
+				newGrantee := s3.Grantee{ID: aws.String(g), Type: aws.String("CanonicalUser")}
+				newGrant := s3.Grant{Grantee: &newGrantee, Permission: aws.String("READ")}
+				grants = append(grants, &newGrant)
+			}
+
+			for _, g := range b.Acl.Grants.Write {
+				newGrantee := s3.Grantee{ID: aws.String(g), Type: aws.String("CanonicalUser")}
+				newGrant := s3.Grant{Grantee: &newGrantee, Permission: aws.String("WRITE")}
+				grants = append(grants, &newGrant)
+			}
+
+			log.Debugf("Bucket %q: Grants: %+v", bn, grants)
+
+			_, err = svc.PutBucketAcl(&s3.PutBucketAclInput{
+				Bucket: aws.String(bn),
+				AccessControlPolicy: &s3.AccessControlPolicy{
+					Grants: grants,
+					Owner: &s3.Owner{
+						DisplayName: aws.String(owner),
+						ID:          aws.String(ownerId),
+					},
+				},
+			})
+
+			if err != nil {
+				log.Errorf("Error applying ACL: %q", err.Error())
+
+				return false
+			}
+
+		}
+
+		// Apply Lifrcycle Configuration
+		if b.LifecycleType != "present" {
+			log.Infof("Bucket %q: Update Lifecycle configuration", bn)
+
+			lfcRules := (s3.GetBucketLifecycleConfigurationOutput{}).Rules
+			for _, lc := range b.LifecycleRules {
+				log.Debugf("LC rule: %+v", lc)
+				// Specifies the expiration for the lifecycle of the object
+				status := strcase.ToCamel(lc.Status)
+				newLCRule := s3.LifecycleRule{
+					Expiration: &s3.LifecycleExpiration{
+						Days: aws.Int64(lc.ExpirationDays),
+					},
+					Filter: &s3.LifecycleRuleFilter{
+						Prefix: aws.String(lc.Prefix),
+					},
+					ID:     aws.String(lc.Id),
+					Status: aws.String(status),
+				}
+
+				if (lc.NonCurrentDays >= 0) && (b.Versioning == "disabled") {
+					log.Warnf("Bucket %q: Lifecycle rule %q contains non-negative value for non-current version expiration, but bucket versioning is disabled!", bn, lc.Id)
+				}
+
+				lfcRules = append(lfcRules, &newLCRule)
+			}
+
+			log.Debugf("Bucket %q: Lifecycle configuration: %+v", bn, lfcRules)
+
+			_, err := svc.PutBucketLifecycleConfiguration(&s3.PutBucketLifecycleConfigurationInput{
+				Bucket: aws.String(bn),
+				LifecycleConfiguration: &s3.BucketLifecycleConfiguration{
+					Rules: lfcRules,
+				},
+			})
+
+			if err != nil {
+				log.Errorf("Error applying Lifecycle Configuration: %q", err.Error())
+
+				return false
+			}
+
+		}
+
+	}
+
+	return true
+}
+
+func configureS3(confPath string, credsPath string) int {
 	log.Infof("Load buckets configuration from %q", confPath)
 
 	localCfg, loadOk := loadS3ConfigFile(&confPath)
@@ -511,17 +715,25 @@ func applyS3Config(confPath string, credsPath string) int {
 		return 1
 	}
 
-	log.Debugf("Loaded local config: %+v", localCfg)
+	log.Debugf("Loaded local configuration: %+v", localCfg)
 
 	log.Info("Load buckets configuration from server")
 
 	srvCfg := getS3Config(&credsPath)
 
-	log.Debugf("Loaded server config: %+v", srvCfg)
+	log.Debugf("Loaded server configuration: %+v", srvCfg)
 
-	newSrvConfig := compareConfigs(localCfg, srvCfg)
+	newSrvConfig, cfgUpdated := compareConfigs(localCfg, srvCfg)
 
-	log.Debugf("New config: %+v", newSrvConfig)
+	if cfgUpdated {
+		log.Debugf("New configuration: %+v", newSrvConfig)
+		if !applyS3Config(&newSrvConfig, &credsPath) {
+			return 1
+		}
+	} else {
+		log.Info("Server's configuration already up to date")
+		return 200
+	}
 
 	return 0
 }
@@ -557,14 +769,17 @@ func main() {
 		exitCode = createS3ConfigFile(*createS3Config, *createCredentials)
 	case cfgFlags.FullCommand():
 		log.Debugf("Command: %q", cfgFlags.FullCommand())
-		log.Debugf("Flag -ceph-config:  %q", *cfgS3Config)
+		log.Debugf("Flag --ceph-config: %q", *cfgS3Config)
 		log.Debugf("Flag --credentials: %q", *cfgCredentials)
 
-		/*
-			TODO
-			Write functions for compare and configuration Amazon S3-compatible Ceph storage
-		*/
-		exitCode = applyS3Config(*cfgS3Config, *cfgCredentials)
+		exitCode = configureS3(*cfgS3Config, *cfgCredentials)
+		if exitCode == 0 {
+			log.Infof("Server configuration updated successfully")
+			// Reload config from server after successfully update
+			exitCode = createS3ConfigFile(*cfgS3Config, *cfgCredentials)
+		} else if exitCode == 200 {
+			exitCode = 0
+		}
 	}
 
 	if exitCode > 0 {
