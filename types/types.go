@@ -36,6 +36,7 @@ type Bucket struct {
 	AclType        string          `yaml:"acl_type"`
 	BucketType     string          `yaml:"bucket_type"`
 	LifecycleRules []LifecycleRule `yaml:"lifecycle_rules"`
+	lifecycleType  string          `yaml:"lifecycle_type"`
 	Versioning     string          `yaml:"versioning"`
 }
 
