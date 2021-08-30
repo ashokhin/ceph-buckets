@@ -9,7 +9,7 @@ export APP_REVISION    ?= $(shell git rev-parse HEAD)
 export APP_ORIGIN      ?= $(shell git config --local --get remote.origin.url)
 export APP_VERSION     := $(shell cat VERSION)
 export APP_USER        := $(shell id -u --name)
-export APP_BUILD_DATE  := $(shell date -u '+%Y-%m-%dT%H:%M:%S:%Z')
+export APP_BUILD_DATE  := $(shell date -u '+%Y-%m-%dT%H:%M:%S,%N%:z')
 
 all: clean format vet build
 
