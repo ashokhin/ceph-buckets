@@ -159,56 +159,6 @@ func createS3SvcClient(credsPath *string) (*types.Config, *s3.S3) {
 
 func getS3Config(credsPath *string) types.Buckets {
 	_, svc := createS3SvcClient(credsPath)
-	// Create Bucket
-	/* 	log.Warn("Create bucket! ", bucket)
-	   	_, err := svc.CreateBucket(&s3.CreateBucketInput{
-	   		Bucket: aws.String("bar"),
-	   	})
-	   	if err != nil {
-	   		log.Fatalf("Unable to create bucket %q, %v", bucket, err)
-	   	} */
-
-	// Put Bucket Lifecycle configuration
-	/* 	_, err := svc.PutBucketLifecycleConfiguration(&s3.PutBucketLifecycleConfigurationInput{
-	   		Bucket: aws.String("foo"),
-	   		LifecycleConfiguration: &s3.BucketLifecycleConfiguration{
-	   			Rules: []*s3.LifecycleRule{
-	   				{
-	   					Expiration: &s3.LifecycleExpiration{
-	   						Days: aws.Int64(30),
-	   					},
-	   					Filter: &s3.LifecycleRuleFilter{
-	   						Prefix: aws.String("done/"),
-	   					},
-	   					ID:     aws.String("DeleteOldDone"),
-	   					Status: aws.String("Enabled"),
-	   				},
-	   				{
-	   					Expiration: &s3.LifecycleExpiration{
-	   						Days: aws.Int64(365),
-	   					},
-	   					Filter: &s3.LifecycleRuleFilter{
-	   						Prefix: aws.String("errors/"),
-	   					},
-	   					ID:     aws.String("DeleteOldErrors"),
-	   					Status: aws.String("Enabled"),
-	   				},
-	   			},
-	   		},
-	   	})
-
-	   	if err != nil {
-	   		if aerr, ok := err.(awserr.Error); ok {
-	   			switch aerr.Code() {
-	   			default:
-	   				log.Errorln(aerr.Error())
-	   			}
-	   		} else {
-	   			// Print the error, cast err to awserr.Error to get the Code and
-	   			// Message from an error.
-	   			log.Errorln(err.Error())
-	   		}
-	   	} */
 
 	log.Infof("List buckets from %q", svc.Endpoint)
 
