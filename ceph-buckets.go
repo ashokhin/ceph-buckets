@@ -85,6 +85,7 @@ func readFile(fs *string) ([]byte, bool) {
 
 	if err != nil {
 		log.Warnf("Error while read file: %q", err.Error())
+
 		readOk = false
 	}
 
@@ -177,6 +178,7 @@ func getS3Config(credsPath *string) types.Buckets {
 
 		b.BucketType = "present"
 		log.Debugf("Bucket: %q. Get bucket ACL...", *bucket.Name)
+
 		aclResult, err := svc.GetBucketAcl(&s3.GetBucketAclInput{
 			Bucket: aws.String(*bucket.Name),
 		})
@@ -189,6 +191,7 @@ func getS3Config(credsPath *string) types.Buckets {
 			log.Debugf("Bucket: %q, ACL: %+v", *bucket.Name, aclResult)
 
 			for _, grants := range aclResult.Grants {
+
 				if *grants.Permission == "FULL_CONTROL" {
 					b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, *grants.Grantee.ID)
 				} else if *grants.Permission == "READ" {
@@ -198,6 +201,7 @@ func getS3Config(credsPath *string) types.Buckets {
 				} else {
 					log.Warnf("Permission type %q unsupported. Skip permission type", *grants.Permission)
 				}
+
 			}
 
 			b.Acl.Owner.DisplayName = *aclResult.Owner.DisplayName
@@ -216,11 +220,13 @@ func getS3Config(credsPath *string) types.Buckets {
 
 			b.Versioning = "error"
 		} else {
+
 			if len(vResult.GoString()) > 4 {
 				b.Versioning = strings.ToLower(*vResult.Status)
 			} else {
 				b.Versioning = "disabled"
 			}
+
 		}
 
 		log.Debugf("Bucket: %q. Get bucket lifecycle...", *bucket.Name)
@@ -232,22 +238,25 @@ func getS3Config(credsPath *string) types.Buckets {
 		log.Debugf("Got Lifecycle result: %+v", lfResult)
 
 		if err != nil {
+
 			if aerr, ok := err.(awserr.Error); ok {
 				switch aerr.Code() {
 				case "NoSuchLifecycleConfiguration":
 					log.Debugf("Bucket: %q. Lifecycle configuration not found", *bucket.Name)
+
 					b.LifecycleType = "present"
 				default:
 					log.Errorf("Error retriving bucket lifecycle: %q", aerr.Error())
+
 					b.LifecycleType = "error"
 				}
 			} else {
 				log.Errorf("Error (raw) retriving bucket lifecycle: %q", err.Error())
 			}
-		} else {
-			for _, r := range lfResult.Rules {
-				log.Debugf("LF FUCKING RULE: %+v", r)
 
+		} else {
+
+			for _, r := range lfResult.Rules {
 				var lfr types.LifecycleRule
 
 				lfr.ExpirationDays = *r.Expiration.Days
@@ -259,8 +268,12 @@ func getS3Config(credsPath *string) types.Buckets {
 					lfr.NonCurrentDays = -1
 				}
 
-				if strings.Contains(r.GoString(), "Prefix") {
+				if strings.Contains(r.GoString(), "Filter") {
+					// New version of Ceph return "Prefix" inside struct "Filter"
 					lfr.Prefix = *r.Filter.Prefix
+				} else if strings.Contains(r.GoString(), "Prefix") {
+					// New version of Ceph return "Prefix" inside struct "LifecycleRule"
+					lfr.Prefix = *r.Prefix
 				}
 
 				lfr.Status = strings.ToLower(*r.Status)
@@ -268,6 +281,7 @@ func getS3Config(credsPath *string) types.Buckets {
 				b.LifecycleRules = append(b.LifecycleRules, lfr)
 			}
 			b.LifecycleType = "present"
+
 		}
 
 		buckets[*bucket.Name] = b
@@ -345,6 +359,7 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	for scanner.Scan() {
 		s := scanner.Text()
 		log.Debugf("Bucket %q founded in %q", s, appPath)
+
 		appBuckets = append(appBuckets, s)
 	}
 
@@ -354,9 +369,9 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	confBuckets, loadOk := loadS3ConfigFile(&confPath)
 
 	if loadOk {
-		log.Debug("Buckets loaded:")
 
 		if *debug {
+			log.Debug("Buckets loaded:")
 
 			for _, confBucket := range confBuckets {
 				fmt.Printf("\t- %+v\n", confBucket)
@@ -383,8 +398,12 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		log.Infof("Bucket %q is new. Add in %q", appBucket, confPath)
 
 		needUpdate = true
+		b.AclType = "new"
+		b.BucketType = "new"
+		b.LifecycleType = "new"
 		// Versioning disabled by default
 		b.Versioning = "disabled"
+
 		confBuckets[appBucket] = b
 	}
 
@@ -410,11 +429,15 @@ func updateConfigFromApp(appPath string, confPath string) int {
 func arrayIsEqual(a1 []string, a2 []string) bool {
 	sort.Strings(a1)
 	sort.Strings(a2)
+
 	if len(a1) == len(a2) {
+
 		for i, v := range a1 {
+
 			if v != a2[i] {
 				return false
 			}
+
 		}
 	} else {
 		return false
@@ -427,15 +450,19 @@ func aclEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
 
 	if !reflect.DeepEqual(lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl) {
 		log.Debugf("ACL FullControl %+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
+
 		return false
 	}
 
 	if !arrayIsEqual(lc.Acl.Grants.Read, sc.Acl.Grants.Read) {
 		log.Debugf("ACL Read %+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
+
 		return false
 	}
+
 	if !arrayIsEqual(lc.Acl.Grants.Write, sc.Acl.Grants.Write) {
 		log.Debugf("ACL Write %+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
+
 		return false
 	}
 
@@ -447,19 +474,25 @@ func lfcIsEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
 	log.Debugf("Compare Lifecycle Configuration for bucket %q", *b)
 
 	if len(lc.LifecycleRules) == len(sc.LifecycleRules) {
+
 		for i, v := range lc.LifecycleRules {
+
 			if !reflect.DeepEqual(v, sc.LifecycleRules[i]) {
 				log.Debugf("LC cmp %+v != %+v", v, sc.LifecycleRules[i])
+
 				return false
 			}
 		}
 
 		for i, v := range sc.LifecycleRules {
+
 			if !reflect.DeepEqual(v, lc.LifecycleRules[i]) {
 				log.Debugf("LC cmp %+v != %+v", v, lc.LifecycleRules[i])
+
 				return false
 			}
 		}
+
 	} else {
 		return false
 	}
@@ -484,6 +517,7 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 			// Compare ACLs
 			if !aclEqual(&v, sc[k], &k) {
 				log.Infof("Update ACL for bucket %q", k)
+
 				newCfgBucket.Acl.Grants.FullControl = v.Acl.Grants.FullControl
 				newCfgBucket.Acl.Grants.Read = v.Acl.Grants.Read
 				newCfgBucket.Acl.Grants.Write = v.Acl.Grants.Write
@@ -492,19 +526,23 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 			}
 			// Compare Lifecycle Configurations
 			if len(sc[k].LifecycleRules) > 0 || len(v.LifecycleRules) > 0 {
+
 				if !lfcIsEqual(&v, sc[k], &k) {
 					log.Infof("Update lifecycle configuration for bucket %q", k)
+
 					newCfgBucket.LifecycleRules = v.LifecycleRules
 					newCfgBucket.LifecycleType = "updated"
 					needUpdate = true
 				}
 			}
+
 			// Compare versioning
 			if sc[k].Versioning != v.Versioning {
 				log.Infof("Update versioning configuration for bucket %q", k)
 				log.Debugf("Versioning is %q now", v.Versioning)
 
 				newCfgBucket.Versioning = v.Versioning
+				newCfgBucket.BucketType = "updated"
 				needUpdate = true
 			}
 
@@ -547,6 +585,25 @@ func applyS3Config(c *types.Buckets, credsPath *string) bool {
 
 		}
 
+		// Apply versioning
+		if b.BucketType != "present" {
+			log.Infof("Bucket %q: Update versioning", bn)
+
+			status := strcase.ToCamel(b.Versioning)
+			_, err := svc.PutBucketVersioning(&s3.PutBucketVersioningInput{
+				Bucket: aws.String(bn),
+				VersioningConfiguration: &s3.VersioningConfiguration{
+					Status: aws.String(status),
+				},
+			})
+
+			if err != nil {
+				log.Errorf("Error set versioning: %q", err.Error())
+
+				return false
+			}
+		}
+
 		// Apply ACLs
 		if b.AclType != "present" {
 			log.Infof("Bucket %q: Update ACL", bn)
@@ -566,6 +623,11 @@ func applyS3Config(c *types.Buckets, credsPath *string) bool {
 			ownerId := *ba.Owner.ID
 
 			grants := (s3.GetBucketAclOutput{}).Grants
+
+			// If "FULL_CONTROL" grants is blank, than always add grants to owner
+			if len(b.Acl.Grants.FullControl) == 0 {
+				b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, ownerId)
+			}
 
 			for _, g := range b.Acl.Grants.FullControl {
 				newGrantee := s3.Grantee{ID: aws.String(g), Type: aws.String("CanonicalUser")}
@@ -613,6 +675,7 @@ func applyS3Config(c *types.Buckets, credsPath *string) bool {
 			lfcRules := (s3.GetBucketLifecycleConfigurationOutput{}).Rules
 			for _, lc := range b.LifecycleRules {
 				log.Debugf("LC rule: %+v", lc)
+
 				// Specifies the expiration for the lifecycle of the object
 				status := strcase.ToCamel(lc.Status)
 				newLCRule := s3.LifecycleRule{
@@ -662,11 +725,11 @@ func configureS3(confPath string, credsPath string) int {
 
 	if !loadOk {
 		log.Errorf("Error loading file %q", localCfg)
+
 		return 1
 	}
 
 	log.Debugf("Loaded local configuration: %+v", localCfg)
-
 	log.Info("Load buckets configuration from server")
 
 	srvCfg := getS3Config(&credsPath)
@@ -677,11 +740,13 @@ func configureS3(confPath string, credsPath string) int {
 
 	if cfgUpdated {
 		log.Debugf("New configuration: %+v", newSrvConfig)
+
 		if !applyS3Config(&newSrvConfig, &credsPath) {
 			return 1
 		}
 	} else {
 		log.Info("Server's configuration already up to date")
+
 		return 200
 	}
 
@@ -696,6 +761,7 @@ func init() {
 	customFormatter.FullTimestamp = true
 	//customFormatter.DisableLevelTruncation = true
 	log.SetFormatter(customFormatter)
+
 	if *debug {
 		log.SetLevel(log.DebugLevel)
 	}
@@ -723,8 +789,10 @@ func main() {
 		log.Debugf("Flag --credentials: %q", *cfgCredentials)
 
 		exitCode = configureS3(*cfgS3Config, *cfgCredentials)
+
 		if exitCode == 0 {
 			log.Infof("Server configuration updated successfully")
+
 			// Reload config from server after successfully update
 			exitCode = createS3ConfigFile(*cfgS3Config, *cfgCredentials)
 		} else if exitCode == 200 {
