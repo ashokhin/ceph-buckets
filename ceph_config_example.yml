@@ -11,6 +11,7 @@ bar:
         owner:
             display_name: S3 Admin
             id: s3_admin
+    acl_type: present
     bucket_type: present
     lifecycle_rules:
         - cur_ver_expiration_days: 30
@@ -23,6 +24,21 @@ bar:
           non_cur_ver_expiration_days: -1
           prefix: errors/
           status: enabled
+    lifecycle_type: present
+    versioning: disabled
+baz:
+    acl:
+        grants:
+            full_control: []
+            read: []
+            write: []
+        owner:
+            display_name: ""
+            id: ""
+    acl_type: new
+    bucket_type: new
+    lifecycle_rules: []
+    lifecycle_type: new
     versioning: disabled
 foo:
     acl:
@@ -36,6 +52,7 @@ foo:
         owner:
             display_name: ""
             id: ""
+    acl_type: new
     bucket_type: new
     lifecycle_rules:
         - cur_ver_expiration_days: 14
@@ -48,4 +65,5 @@ foo:
           non_cur_ver_expiration_days: 5
           prefix: errors/
           status: enabled
+    lifecycle_type: new
     versioning: enabled
