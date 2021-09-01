@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -776,18 +777,24 @@ func main() {
 		log.Debugf("Flag --app-config:  %q", *appAppConfig)
 		log.Debugf("Flag --ceph-config: %q", *appS3Config)
 
+		*appAppConfig, _ = filepath.Abs(*appAppConfig)
+		*appS3Config, _ = filepath.Abs(*appS3Config)
 		exitCode = updateConfigFromApp(*appAppConfig, *appS3Config)
 	case createFlags.FullCommand():
 		log.Debugf("Command: %q", createFlags.FullCommand())
 		log.Debugf("Flag --ceph-config: %q", *createS3Config)
 		log.Debugf("Flag --credentials: %q", *createCredentials)
 
+		*createS3Config, _ = filepath.Abs(*createS3Config)
+		*createCredentials, _ = filepath.Abs(*createCredentials)
 		exitCode = createS3ConfigFile(*createS3Config, *createCredentials)
 	case cfgFlags.FullCommand():
 		log.Debugf("Command: %q", cfgFlags.FullCommand())
 		log.Debugf("Flag --ceph-config: %q", *cfgS3Config)
 		log.Debugf("Flag --credentials: %q", *cfgCredentials)
 
+		*cfgS3Config, _ = filepath.Abs(*cfgS3Config)
+		*cfgCredentials, _ = filepath.Abs(*cfgCredentials)
 		exitCode = configureS3(*cfgS3Config, *cfgCredentials)
 
 		if exitCode == 0 {
