@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ashokhin/ceph-buckets/types"
 
@@ -26,6 +28,7 @@ import (
 const (
 	awsRegion string = "us-east-1"
 	forcePath bool   = true
+	retry_num int    = 10
 )
 
 var (
@@ -44,13 +47,15 @@ var (
 	appAppConfig = appFlags.Flag("app-config", "Application's TXT-file, contains buckets list.").Default("./app_buckets_config.txt").String()
 	appS3Config  = appFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
 
-	createFlags       = app.Command("create", "Create/Update Ceph configuration YAML-file from server.")
-	createS3Config    = createFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
-	createCredentials = createFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
+	createFlags         = app.Command("create", "Create/Update Ceph configuration YAML-file from server.")
+	createS3Config      = createFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
+	createCredentials   = createFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
+	createBucketPostfix = createFlags.Flag("bucket-postfix", "Bucket postfix to be deleted from the bucket name.").Default("").String()
 
-	cfgFlags       = app.Command("config", "Create/Update Ceph configuration on server from YAML-file.")
-	cfgS3Config    = cfgFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
-	cfgCredentials = cfgFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
+	cfgFlags         = app.Command("config", "Create/Update Ceph configuration on server from YAML-file.")
+	cfgS3Config      = cfgFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
+	cfgCredentials   = cfgFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
+	cfgBucketPostfix = cfgFlags.Flag("bucket-postfix", "Bucket postfix to be added to the bucket name.").Default("").String()
 )
 
 func printVersion() string {
@@ -130,7 +135,8 @@ func writeConfig(cfg interface{}, fs *string) error {
 func createS3SvcClient(credsPath *string) (*types.Config, *s3.S3) {
 	var sess *session.Session
 
-	log.Infof("Loading S3 connection settings from %q", *credsPath)
+	log.Debug("Create client for specified context")
+	log.Debugf("Loading S3 connection settings from %q", *credsPath)
 
 	yamlConfig, loadOk := loadConfig(credsPath)
 
@@ -159,7 +165,7 @@ func createS3SvcClient(credsPath *string) (*types.Config, *s3.S3) {
 	return yamlConfig, svc
 }
 
-func getS3Config(credsPath *string) types.Buckets {
+func getS3Config(credsPath *string, bucketPostfix *string) types.Buckets {
 	_, svc := createS3SvcClient(credsPath)
 
 	log.Infof("List buckets from %q", svc.Endpoint)
@@ -173,11 +179,28 @@ func getS3Config(credsPath *string) types.Buckets {
 	log.Info("Buckets listed successfully")
 
 	buckets := make(types.Buckets)
+	matchPattern := fmt.Sprintf("%s$", *bucketPostfix)
+	re := regexp.MustCompile(matchPattern)
 
 	for _, bucket := range listResult.Buckets {
 		var b types.Bucket
+		var bn string
 
-		b.BucketType = "present"
+		if len(*bucketPostfix) > 0 {
+			if re.MatchString(*bucket.Name) {
+				log.Debugf("Bucket %q was match pattern %q. Rename.", *bucket.Name, matchPattern)
+
+				//Create name w/o postfix
+				bn = re.ReplaceAllString(*bucket.Name, "")
+				log.Debugf("New name: %q", bn)
+			} else {
+				log.Warnf("Bucket %q doesn't match pattern %q", *bucket.Name, matchPattern)
+				bn = *bucket.Name
+			}
+		} else {
+			bn = *bucket.Name
+		}
+
 		log.Debugf("Bucket: %q. Get bucket ACL...", *bucket.Name)
 
 		aclResult, err := svc.GetBucketAcl(&s3.GetBucketAclInput{
@@ -207,7 +230,6 @@ func getS3Config(credsPath *string) types.Buckets {
 
 			b.Acl.Owner.DisplayName = *aclResult.Owner.DisplayName
 			b.Acl.Owner.Id = *aclResult.Owner.ID
-			b.AclType = "present"
 		}
 
 		log.Debugf("Bucket: %q. Get bucket versioning...", *bucket.Name)
@@ -225,7 +247,7 @@ func getS3Config(credsPath *string) types.Buckets {
 			if len(vResult.GoString()) > 4 {
 				b.Versioning = strings.ToLower(*vResult.Status)
 			} else {
-				b.Versioning = "disabled"
+				b.Versioning = "suspended"
 			}
 
 		}
@@ -245,7 +267,6 @@ func getS3Config(credsPath *string) types.Buckets {
 				case "NoSuchLifecycleConfiguration":
 					log.Debugf("Bucket: %q. Lifecycle configuration not found", *bucket.Name)
 
-					b.LifecycleType = "present"
 				default:
 					log.Errorf("Error retriving bucket lifecycle: %q", aerr.Error())
 
@@ -281,11 +302,10 @@ func getS3Config(credsPath *string) types.Buckets {
 
 				b.LifecycleRules = append(b.LifecycleRules, lfr)
 			}
-			b.LifecycleType = "present"
 
 		}
 
-		buckets[*bucket.Name] = b
+		buckets[bn] = b
 
 	}
 
@@ -304,8 +324,8 @@ func getS3Config(credsPath *string) types.Buckets {
 	return buckets
 }
 
-func createS3ConfigFile(confPath string, credsPath string) int {
-	buckets := getS3Config(&credsPath)
+func createS3ConfigFile(confPath string, credsPath string, bucketPostfix string) int {
+	buckets := getS3Config(&credsPath, &bucketPostfix)
 	log.Infof("Write config to %q", confPath)
 
 	err := writeConfig(&buckets, &confPath)
@@ -403,7 +423,7 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		b.BucketType = "new"
 		b.LifecycleType = "new"
 		// Versioning disabled by default
-		b.Versioning = "disabled"
+		b.Versioning = "suspended"
 
 		confBuckets[appBucket] = b
 	}
@@ -501,7 +521,7 @@ func lfcIsEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
 	return true
 }
 
-func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
+func compareConfigs(lc types.Buckets, sc types.Buckets, bucketPostfix string) (types.Buckets, bool) {
 	var needUpdate bool = false
 
 	newCfg := make(types.Buckets)
@@ -509,6 +529,9 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 	log.Info("Compare local and server's configurations")
 
 	for k, v := range lc {
+
+		//create bucket name with postfix
+		bn := k + bucketPostfix
 
 		if sc.HasKey(k) {
 			log.Debugf("Bucket %q already exist on server", k)
@@ -551,12 +574,14 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 
 		} else {
 			log.Debugf("Bucket %q doesn't exist on server", k)
-			log.Debugf("Add new bucket to server's configuration: %+v", v)
 
 			v.AclType = "new"
 			v.BucketType = "new"
 			v.LifecycleType = "new"
-			newCfg[k] = v
+
+			log.Debugf("Add new bucket to server's configuration: %+v", v)
+
+			newCfg[bn] = v
 			needUpdate = true
 		}
 
@@ -564,55 +589,104 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 	return newCfg, needUpdate
 }
 
-func applyS3Config(c *types.Buckets, credsPath *string) bool {
+func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bool {
 	log.Info("Apply new configuration on server")
 
-	_, svc := createS3SvcClient(credsPath)
+	var retry_count int
 
 	for bn, b := range *c {
 		// Create bucket
+		bn = bn + bucketPostfix
 		if b.BucketType == "new" {
 			log.Infof("Create bucket %q", bn)
 
-			_, err := svc.CreateBucket(&s3.CreateBucketInput{
-				Bucket: &bn,
-			})
+			retry_count = retry_num
 
-			if err != nil {
-				log.Errorf("Error creating bucket: %q", err.Error())
+			for retry_count > 0 {
+				_, svc := createS3SvcClient(credsPath)
+				input := &s3.CreateBucketInput{
+					Bucket: &bn,
+				}
+				_, err := svc.CreateBucket(input)
 
-				return false
+				retry_count--
+
+				if err != nil {
+					log.Debugf("Error creating bucket: %q. Retry attempts left: %v", err.Error(), retry_count)
+
+					time.Sleep(1 * time.Second)
+
+				} else {
+					log.Debugf("Bucket %q created", bn)
+					break
+				}
+
+				if retry_count == 0 && err != nil {
+					log.Errorf("Error creating bucket: %q", err.Error())
+
+					return false
+				}
+
 			}
 
 		}
 
-		// Apply versioning
-		if b.BucketType != "present" {
+		// Apply versioning if bucketType "new" or "updated"
+		if b.BucketType != "" {
 			log.Infof("Bucket %q: Update versioning", bn)
 
 			status := strcase.ToCamel(b.Versioning)
-			_, err := svc.PutBucketVersioning(&s3.PutBucketVersioningInput{
-				Bucket: aws.String(bn),
-				VersioningConfiguration: &s3.VersioningConfiguration{
-					Status: aws.String(status),
-				},
-			})
+			log.Debugf("Versioning status: %q", status)
 
-			if err != nil {
-				log.Errorf("Error set versioning: %q", err.Error())
+			retry_count = retry_num
 
-				return false
+			for retry_count > 0 {
+				_, svc := createS3SvcClient(credsPath)
+				input := &s3.PutBucketVersioningInput{
+					Bucket: aws.String(bn),
+					VersioningConfiguration: &s3.VersioningConfiguration{
+						Status: aws.String(status),
+					},
+				}
+
+				log.Debugf("Apply versioning: %+v", input)
+
+				_, err := svc.PutBucketVersioning(input)
+
+				retry_count--
+
+				if err != nil {
+					log.Debugf("Error set versioning: %q. Retry attempts left: %v", err.Error(), retry_count)
+
+					time.Sleep(1 * time.Second)
+
+				} else {
+					break
+				}
+
+				if retry_count == 0 && err != nil {
+					log.Errorf("Error set versioning: %q", err.Error())
+
+					return false
+				}
+
 			}
+
 		}
 
 		// Apply ACLs
-		if b.AclType != "present" {
+		if b.AclType != "" {
 			log.Infof("Bucket %q: Update ACL", bn)
-			log.Debugf("Bucket %q: Get ACL", bn)
+			log.Debugf("Bucket %q: Get owner", bn)
 
-			ba, err := svc.GetBucketAcl(&s3.GetBucketAclInput{
+			retry_count = retry_num
+
+			_, svc := createS3SvcClient(credsPath)
+			input := &s3.GetBucketAclInput{
 				Bucket: aws.String(bn),
-			})
+			}
+
+			ba, err := svc.GetBucketAcl(input)
 
 			if err != nil {
 				log.Errorf("Error retriving ACL: %q", err.Error())
@@ -648,32 +722,53 @@ func applyS3Config(c *types.Buckets, credsPath *string) bool {
 				grants = append(grants, &newGrant)
 			}
 
-			log.Debugf("Bucket %q: Grants: %+v", bn, grants)
+			log.Debugf("Bucket %q: Set grants: %+v", bn, grants)
 
-			_, err = svc.PutBucketAcl(&s3.PutBucketAclInput{
-				Bucket: aws.String(bn),
-				AccessControlPolicy: &s3.AccessControlPolicy{
-					Grants: grants,
-					Owner: &s3.Owner{
-						DisplayName: aws.String(owner),
-						ID:          aws.String(ownerId),
+			retry_count = retry_num
+
+			for retry_count > 0 {
+				_, svc := createS3SvcClient(credsPath)
+				input := &s3.PutBucketAclInput{
+					Bucket: aws.String(bn),
+					AccessControlPolicy: &s3.AccessControlPolicy{
+						Grants: grants,
+						Owner: &s3.Owner{
+							DisplayName: aws.String(owner),
+							ID:          aws.String(ownerId),
+						},
 					},
-				},
-			})
+				}
 
-			if err != nil {
-				log.Errorf("Error applying ACL: %q", err.Error())
+				log.Debugf("Apply ACL: +%v", input)
 
-				return false
+				_, err = svc.PutBucketAcl(input)
+
+				retry_count--
+
+				if err != nil {
+					log.Debugf("Error applying ACL: %q. Retry attempts left: %v", err.Error(), retry_count)
+
+					time.Sleep(1 * time.Second)
+
+				} else {
+					break
+				}
+
+				if retry_count == 0 && err != nil {
+					log.Errorf("Error applying ACL: %q", err.Error())
+
+					return false
+				}
+
 			}
 
 		}
 
 		// Apply Lifrcycle Configuration
-		if b.LifecycleType != "present" {
+		if b.LifecycleType != "" {
 			log.Infof("Bucket %q: Update Lifecycle configuration", bn)
 
-			lfcRules := (s3.GetBucketLifecycleConfigurationOutput{}).Rules
+			lfcRules := []*s3.LifecycleRule{}
 			for _, lc := range b.LifecycleRules {
 				log.Debugf("LC rule: %+v", lc)
 
@@ -690,36 +785,76 @@ func applyS3Config(c *types.Buckets, credsPath *string) bool {
 					Status: aws.String(status),
 				}
 
-				if (lc.NonCurrentDays >= 0) && (b.Versioning == "disabled") {
+				if (lc.NonCurrentDays >= 0) && (b.Versioning == "suspended") {
 					log.Warnf("Bucket %q: Lifecycle rule %q contains non-negative value for non-current version expiration, but bucket versioning is disabled!", bn, lc.Id)
 				}
 
 				lfcRules = append(lfcRules, &newLCRule)
 			}
 
-			log.Debugf("Bucket %q: Lifecycle configuration: %+v", bn, lfcRules)
+			retry_count = retry_num
 
-			_, err := svc.PutBucketLifecycleConfiguration(&s3.PutBucketLifecycleConfigurationInput{
-				Bucket: aws.String(bn),
-				LifecycleConfiguration: &s3.BucketLifecycleConfiguration{
-					Rules: lfcRules,
-				},
-			})
+			for retry_count > 0 {
+				log.Debugf("Bucket %q: Set Lifecycle configuration: %+v", bn, lfcRules)
 
-			if err != nil {
-				log.Errorf("Error applying Lifecycle Configuration: %q", err.Error())
+				_, svc := createS3SvcClient(credsPath)
+				// Recreate/Delete lifecycle rules
+				// first: Delete old rules
+				input := &s3.DeleteBucketLifecycleInput{
+					Bucket: aws.String(bn),
+				}
 
-				return false
+				_, err := svc.DeleteBucketLifecycle(input)
+				if err != nil {
+					log.Errorf("Error deleting old lifecycle configuration: %q", err.Error())
+
+					return false
+				}
+
+				if len(lfcRules) > 0 {
+					// Create new versions of rules
+					input := &s3.PutBucketLifecycleConfigurationInput{
+						Bucket: aws.String(bn),
+						LifecycleConfiguration: &s3.BucketLifecycleConfiguration{
+							Rules: lfcRules,
+						},
+					}
+
+					log.Debugf("Apply lifecycle configuration: %+v", input)
+
+					_, err := svc.PutBucketLifecycleConfiguration(input)
+
+					retry_count--
+
+					if err != nil {
+						log.Debugf("Error applying Lifecycle Configuration: %q. Retry attempts left: %v", err.Error(), retry_count)
+
+						time.Sleep(1 * time.Second)
+
+					} else {
+						break
+					}
+
+					if retry_count == 0 && err != nil {
+						log.Errorf("Error applying Lifecycle Configuration: %q", err.Error())
+
+						return false
+
+					}
+
+				} else {
+					break
+				}
+
 			}
 
 		}
-
 	}
 
 	return true
 }
 
-func configureS3(confPath string, credsPath string) int {
+func configureS3(confPath string, credsPath string, bucketPostfix string) int {
 	log.Infof("Load buckets configuration from %q", confPath)
 
 	localCfg, loadOk := loadS3ConfigFile(&confPath)
@@ -733,16 +868,27 @@ func configureS3(confPath string, credsPath string) int {
 	log.Debugf("Loaded local configuration: %+v", localCfg)
 	log.Info("Load buckets configuration from server")
 
-	srvCfg := getS3Config(&credsPath)
+	srvCfg := getS3Config(&credsPath, &bucketPostfix)
 
 	log.Debugf("Loaded server configuration: %+v", srvCfg)
 
-	newSrvConfig, cfgUpdated := compareConfigs(localCfg, srvCfg)
+	newSrvConfig, cfgUpdated := compareConfigs(localCfg, srvCfg, bucketPostfix)
 
 	if cfgUpdated {
+		// Test and sort configuration struct
+		yaml_model, _ := yaml.Marshal(&newSrvConfig)
+		err := yaml.Unmarshal(yaml_model, newSrvConfig)
+
+		if err != nil {
+			log.Errorf("Test new configuration was failed: %q", err.Error())
+			log.Debugf("Broken configuration: %+v", newSrvConfig)
+
+			return 1
+		}
+
 		log.Debugf("New configuration: %+v", newSrvConfig)
 
-		if !applyS3Config(&newSrvConfig, &credsPath) {
+		if !applyS3Config(&newSrvConfig, &credsPath, bucketPostfix) {
 			return 1
 		}
 	} else {
@@ -774,34 +920,36 @@ func main() {
 	switch kingpin.MustParse(app.Parse(os.Args[1:])) {
 	case appFlags.FullCommand():
 		log.Debugf("Command: %q", appFlags.FullCommand())
-		log.Debugf("Flag --app-config:  %q", *appAppConfig)
-		log.Debugf("Flag --ceph-config: %q", *appS3Config)
+		log.Debugf("Flag --app-config:     %q", *appAppConfig)
+		log.Debugf("Flag --ceph-config:    %q", *appS3Config)
 
 		*appAppConfig, _ = filepath.Abs(*appAppConfig)
 		*appS3Config, _ = filepath.Abs(*appS3Config)
 		exitCode = updateConfigFromApp(*appAppConfig, *appS3Config)
 	case createFlags.FullCommand():
 		log.Debugf("Command: %q", createFlags.FullCommand())
-		log.Debugf("Flag --ceph-config: %q", *createS3Config)
-		log.Debugf("Flag --credentials: %q", *createCredentials)
+		log.Debugf("Flag --ceph-config:    %q", *createS3Config)
+		log.Debugf("Flag --credentials:    %q", *createCredentials)
+		log.Debugf("Flag --bucket-postfix: %q", *createBucketPostfix)
 
 		*createS3Config, _ = filepath.Abs(*createS3Config)
 		*createCredentials, _ = filepath.Abs(*createCredentials)
-		exitCode = createS3ConfigFile(*createS3Config, *createCredentials)
+		exitCode = createS3ConfigFile(*createS3Config, *createCredentials, *createBucketPostfix)
 	case cfgFlags.FullCommand():
 		log.Debugf("Command: %q", cfgFlags.FullCommand())
-		log.Debugf("Flag --ceph-config: %q", *cfgS3Config)
-		log.Debugf("Flag --credentials: %q", *cfgCredentials)
+		log.Debugf("Flag --ceph-config:    %q", *cfgS3Config)
+		log.Debugf("Flag --credentials:    %q", *cfgCredentials)
+		log.Debugf("Flag --bucket-postfix: %q", *cfgBucketPostfix)
 
 		*cfgS3Config, _ = filepath.Abs(*cfgS3Config)
 		*cfgCredentials, _ = filepath.Abs(*cfgCredentials)
-		exitCode = configureS3(*cfgS3Config, *cfgCredentials)
+		exitCode = configureS3(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 
 		if exitCode == 0 {
 			log.Infof("Server configuration updated successfully")
 
-			// Reload config from server after successfully update
-			exitCode = createS3ConfigFile(*cfgS3Config, *cfgCredentials)
+			log.Info("Update local config from server")
+			exitCode = createS3ConfigFile(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 		} else if exitCode == 200 {
 			exitCode = 0
 		}
