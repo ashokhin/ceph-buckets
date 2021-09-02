@@ -419,9 +419,6 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		log.Infof("Bucket %q is new. Add in %q", appBucket, confPath)
 
 		needUpdate = true
-		b.AclType = "new"
-		b.BucketType = "new"
-		b.LifecycleType = "new"
 		// Versioning disabled by default
 		b.Versioning = "suspended"
 
