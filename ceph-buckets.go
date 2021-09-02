@@ -134,6 +134,7 @@ The following rules apply for naming buckets in Amazon S3:
 * Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
 * Bucket names must begin and end with a lowercase letter.
 	`, b)
+
 		return false
 	}
 
@@ -213,6 +214,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) types.Buckets {
 				log.Debugf("New name: %q", bn)
 			} else {
 				log.Warnf("Bucket %q doesn't match pattern %q", *bucket.Name, matchPattern)
+
 				bn = *bucket.Name
 			}
 		} else {
@@ -259,7 +261,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) types.Buckets {
 		if err != nil {
 			log.Errorf("Error while retriving versioning configuration: %q", err.Error())
 
-			b.Versioning = "error"
+			b.VersioningType = "error"
 		} else {
 
 			if len(vResult.GoString()) > 4 {
@@ -328,7 +330,6 @@ func getS3Config(credsPath *string, bucketPostfix *string) types.Buckets {
 	}
 
 	log.Debugf("Buckets golang struct: %+v", buckets)
-
 	log.Debug("Test YAML marshaling...")
 
 	data, err := yaml.Marshal(&buckets)
@@ -584,7 +585,7 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 				log.Debugf("Versioning is %q now", v.Versioning)
 
 				newCfgBucket.Versioning = v.Versioning
-				newCfgBucket.BucketType = "updated"
+				newCfgBucket.VersioningType = "updated"
 				needUpdate = true
 			}
 
@@ -636,6 +637,7 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 
 				} else {
 					log.Debugf("Bucket %q created", bn)
+
 					break
 				}
 
@@ -650,7 +652,7 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 		}
 
 		// Apply versioning if bucketType "new" or "updated"
-		if b.BucketType != "" {
+		if b.VersioningType == "updated" {
 			log.Infof("Bucket %q: Update versioning", bn)
 
 			status := strcase.ToCamel(b.Versioning)
@@ -792,6 +794,7 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 
 				if (lc.NonCurrentDays >= 0) && (b.Versioning == "suspended") {
 					log.Warnf("Bucket %q: Lifecycle rule %q contains non-negative value for non-current version expiration, but bucket versioning is disabled!", bn, lc.Id)
+
 					lc.NonCurrentDays = -1
 				}
 
@@ -814,7 +817,6 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 						Status: aws.String(status),
 					}
 				} else {
-					log.Debugf("LC_02: %+v", lc)
 					newLCRule = s3.LifecycleRule{
 						Expiration: &s3.LifecycleExpiration{
 							Days: aws.Int64(lc.ExpirationDays),
