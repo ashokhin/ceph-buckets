@@ -32,13 +32,13 @@ type LifecycleRule struct {
 }
 
 type Bucket struct {
-	Acl            BucketAcl `yaml:"acl"`
-	AclType        string
-	BucketType     string
+	Acl            BucketAcl       `yaml:"acl"`
+	AclType        string          `yaml:"acl_type,omitempty"`
+	BucketType     string          `yaml:"bucket_type,omitempty"`
 	LifecycleRules []LifecycleRule `yaml:"lifecycle_rules"`
-	LifecycleType  string
-	Versioning     string `yaml:"versioning"`
-	VersioningType string
+	LifecycleType  string          `yaml:"lidecycle_type,omitempty"`
+	Versioning     string          `yaml:"versioning"`
+	VersioningType string          `yaml:"versioning_type,omitempty"`
 }
 
 type Buckets map[string]Bucket
