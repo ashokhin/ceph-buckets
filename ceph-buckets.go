@@ -766,21 +766,41 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 			for _, lc := range b.LifecycleRules {
 				log.Debugf("LC rule: %+v", lc)
 
-				// Specifies the expiration for the lifecycle of the object
-				status := strcase.ToCamel(lc.Status)
-				newLCRule := s3.LifecycleRule{
-					Expiration: &s3.LifecycleExpiration{
-						Days: aws.Int64(lc.ExpirationDays),
-					},
-					Filter: &s3.LifecycleRuleFilter{
-						Prefix: aws.String(lc.Prefix),
-					},
-					ID:     aws.String(lc.Id),
-					Status: aws.String(status),
-				}
-
 				if (lc.NonCurrentDays >= 0) && (b.Versioning == "suspended") {
 					log.Warnf("Bucket %q: Lifecycle rule %q contains non-negative value for non-current version expiration, but bucket versioning is disabled!", bn, lc.Id)
+					lc.NonCurrentDays = -1
+				}
+
+				// Specifies the expiration for the lifecycle of the object
+				status := strcase.ToCamel(lc.Status)
+				newLCRule := s3.LifecycleRule{}
+
+				if lc.NonCurrentDays >= 0 {
+					newLCRule = s3.LifecycleRule{
+						Expiration: &s3.LifecycleExpiration{
+							Days: aws.Int64(lc.ExpirationDays),
+						},
+						Filter: &s3.LifecycleRuleFilter{
+							Prefix: aws.String(lc.Prefix),
+						},
+						ID: aws.String(lc.Id),
+						NoncurrentVersionExpiration: &s3.NoncurrentVersionExpiration{
+							NoncurrentDays: aws.Int64(lc.NonCurrentDays),
+						},
+						Status: aws.String(status),
+					}
+				} else {
+					log.Debugf("LC_02: %+v", lc)
+					newLCRule = s3.LifecycleRule{
+						Expiration: &s3.LifecycleExpiration{
+							Days: aws.Int64(lc.ExpirationDays),
+						},
+						Filter: &s3.LifecycleRuleFilter{
+							Prefix: aws.String(lc.Prefix),
+						},
+						ID:     aws.String(lc.Id),
+						Status: aws.String(status),
+					}
 				}
 
 				lfcRules = append(lfcRules, &newLCRule)
