@@ -567,6 +567,17 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 				newCfgBucket.AclType = "updated"
 				needUpdate = true
 			}
+
+			// Compare versioning
+			if sc[k].Versioning != v.Versioning {
+				log.Infof("Update versioning configuration for bucket %q", k)
+				log.Debugf("Versioning is %q now", v.Versioning)
+
+				newCfgBucket.Versioning = v.Versioning
+				newCfgBucket.VersioningType = "updated"
+				needUpdate = true
+			}
+
 			// Compare Lifecycle Configurations
 			if len(sc[k].LifecycleRules) > 0 || len(v.LifecycleRules) > 0 {
 
@@ -577,16 +588,7 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 					newCfgBucket.LifecycleType = "updated"
 					needUpdate = true
 				}
-			}
 
-			// Compare versioning
-			if sc[k].Versioning != v.Versioning {
-				log.Infof("Update versioning configuration for bucket %q", k)
-				log.Debugf("Versioning is %q now", v.Versioning)
-
-				newCfgBucket.Versioning = v.Versioning
-				newCfgBucket.VersioningType = "updated"
-				needUpdate = true
 			}
 
 			newCfg[k] = newCfgBucket
@@ -605,6 +607,7 @@ func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 		}
 
 	}
+
 	return newCfg, needUpdate
 }
 
@@ -695,7 +698,7 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 		}
 
 		// Apply ACLs
-		if b.AclType != "" {
+		if b.AclType != "error" {
 			log.Infof("Bucket %q: Update ACL", bn)
 			log.Debugf("Bucket %q: Get owner", bn)
 
@@ -785,7 +788,7 @@ func applyS3Config(c *types.Buckets, credsPath *string, bucketPostfix string) bo
 		}
 
 		// Apply Lifrcycle Configuration
-		if b.LifecycleType != "" {
+		if b.LifecycleType != "error" {
 			log.Infof("Bucket %q: Update Lifecycle configuration", bn)
 
 			lfcRules := []*s3.LifecycleRule{}
