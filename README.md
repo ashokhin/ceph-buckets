@@ -68,7 +68,7 @@
 # ceph-buckets --help-long
 usage: ceph-buckets [<flags>] <command> [<args> ...]
 
-A command-line application for manage Cephconfiguration of Amazon S3-compatible storage based on Ceph.
+A command-line application for manage Ceph configuration of Amazon S3-compatible storage based on Ceph.
 
 Flags:
   --help     Show context-sensitive help (also try --help-long and --help-man).
@@ -91,17 +91,19 @@ Commands:
     Create/Update Ceph configuration YAML-file from server.
 
     --ceph-config="./ceph_config.yml"  
-      Ceph configuration YAML-file.
+                         Ceph configuration YAML-file.
     --credentials="./ceph_credentials.yml"  
-      Ceph credentials YAML-file.
+                         Ceph credentials YAML-file.
+    --bucket-postfix=""  Bucket postfix to be deleted from the bucket name.
 
   config [<flags>]
     Create/Update Ceph configuration on server from YAML-file.
 
-    --ceph-config="./ceph-config.yml"  
-      Ceph configuration YAML-file.
+    --ceph-config="./ceph_config.yml"  
+                         Ceph configuration YAML-file.
     --credentials="./ceph_credentials.yml"  
-      Ceph credentials YAML-file.
+                         Ceph credentials YAML-file.
+    --bucket-postfix=""  Bucket postfix to be added to the bucket name.
 
 
 # ceph-buckets help app
@@ -131,7 +133,7 @@ Flags:
 #### Создание/обновление конфигурационного файла из данных с сервера Ceph:
 
 ```
-ceph-buckets create --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml
+ceph-buckets create --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml --bucket-postfix="-rls"
 ```
 
 #### Создание/обновление конфигурационного файла из списка бакетов приложения:
@@ -143,7 +145,7 @@ ceph-buckets app --app-config ./app_buckets_config.txt --ceph-config ./ceph_conf
 #### Создание/обновление бакетов на сервере Ceph из данных из конфигурационного файла:
 
 ```
-ceph-buckets config --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml
+ceph-buckets config --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml --bucket-postfix="-rls"
 ```
 
 
