@@ -518,7 +518,7 @@ func lfcIsEqual(lc *types.Bucket, sc types.Bucket, b *string) bool {
 	return true
 }
 
-func compareConfigs(lc types.Buckets, sc types.Buckets, bucketPostfix string) (types.Buckets, bool) {
+func compareConfigs(lc types.Buckets, sc types.Buckets) (types.Buckets, bool) {
 	var needUpdate bool = false
 
 	newCfg := make(types.Buckets)
@@ -526,9 +526,6 @@ func compareConfigs(lc types.Buckets, sc types.Buckets, bucketPostfix string) (t
 	log.Info("Compare local and server's configurations")
 
 	for k, v := range lc {
-
-		//create bucket name with postfix
-		bn := k + bucketPostfix
 
 		if sc.HasKey(k) {
 			log.Debugf("Bucket %q already exist on server", k)
@@ -578,7 +575,7 @@ func compareConfigs(lc types.Buckets, sc types.Buckets, bucketPostfix string) (t
 
 			log.Debugf("Add new bucket to server's configuration: %+v", v)
 
-			newCfg[bn] = v
+			newCfg[k] = v
 			needUpdate = true
 		}
 
@@ -869,7 +866,7 @@ func configureS3(confPath string, credsPath string, bucketPostfix string) int {
 
 	log.Debugf("Loaded server configuration: %+v", srvCfg)
 
-	newSrvConfig, cfgUpdated := compareConfigs(localCfg, srvCfg, bucketPostfix)
+	newSrvConfig, cfgUpdated := compareConfigs(localCfg, srvCfg)
 
 	if cfgUpdated {
 		// Test and sort configuration struct
