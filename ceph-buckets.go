@@ -121,6 +121,24 @@ func loadConfig(fs *string) (*types.Config, bool) {
 	return cfg, readOk
 }
 
+func checkBucketName(b string) bool {
+
+	re := regexp.MustCompile(`^[a-z][a-z0-9-]{1,61}[a-z]$`)
+
+	if re.MatchString(b) {
+		return true
+	} else {
+		log.Warnf(`String %q doesn't match naming rules and will be skipped.
+The following rules apply for naming buckets in Amazon S3:
+* Bucket names must be between 3 and 63 characters long.
+* Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
+* Bucket names must begin and end with a lowercase letter.
+	`, b)
+		return false
+	}
+
+}
+
 func writeConfig(cfg interface{}, fs *string) error {
 	data, err := yaml.Marshal(&cfg)
 
@@ -379,7 +397,13 @@ func updateConfigFromApp(appPath string, confPath string) int {
 
 	for scanner.Scan() {
 		s := scanner.Text()
-		log.Debugf("Bucket %q founded in %q", s, appPath)
+
+		if checkBucketName(s) {
+			log.Debugf("Bucket %q founded in %q", s, appPath)
+
+		} else {
+			continue
+		}
 
 		appBuckets = append(appBuckets, s)
 	}
