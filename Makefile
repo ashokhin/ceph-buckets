@@ -1,4 +1,6 @@
-GOPATH      := $(shell go env GOPATH)
+GOVERSION      := $(shell go env GOVERSION)
+GOARCH         := $(shell go env GOARCH)
+GOOS           := $(shell go env GOOS)
 
 BIN_DIR             ?= $(shell pwd)/bin
 BIN_NAME            ?= $(shell go env GOEXE)
@@ -29,7 +31,7 @@ vet:
 build:
 	@echo ">> building binary"
 	@CGO_ENABLED=0 go build -v \
-		-ldflags "-X 'main.appVersion=${APP_VERSION}' \
+		-ldflags "-X 'main.appVersion=v${APP_VERSION}, ${GOVERSION} ${GOOS}/${GOARCH}' \
 			-X main.appBranch=${APP_BRANCH} \
 			-X main.appRevision=${APP_REVISION} \
 			-X main.appBuildUser=${APP_USER}@${APP_HOST} \
