@@ -24,9 +24,9 @@ type BucketAcl struct {
 }
 
 type LifecycleRule struct {
-	ExpirationDays int64  `yaml:"cur_ver_expiration_days"`
+	ExpirationDays int32  `yaml:"cur_ver_expiration_days"`
 	Id             string `yaml:"id"`
-	NonCurrentDays int64  `yaml:"non_cur_ver_expiration_days"`
+	NonCurrentDays int32  `yaml:"non_cur_ver_expiration_days"`
 	Prefix         string `yaml:"prefix"`
 	Status         string `yaml:"status"`
 }
