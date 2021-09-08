@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/iancoleman/strcase"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
@@ -285,10 +287,10 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 func getS3Config(credsPath *string, bucketPostfix *string) utiltypes.Buckets {
 	client := createS3SvcClient(credsPath)
 
-	log.Infof("List buckets from %+v", client)
+	log.Info("List buckets from S3 storage")
 
-	input := &s3.ListBucketsInput{}
-	listResult, err := ListBuckets(context.TODO(), client, input)
+	inputList := &s3.ListBucketsInput{}
+	listResult, err := ListBuckets(context.TODO(), client, inputList)
 
 	if err != nil {
 		log.Fatalf("Error retrieving buckets: %q", err.Error())
@@ -332,7 +334,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) utiltypes.Buckets {
 
 			b.AclType = "error"
 		} else {
-			log.Debugf("Bucket: %q, ACL: %+v", *bucket.Name, aclResult)
+			log.Debugf("Bucket: %q, ACL: %+v", *bucket.Name, *aclResult)
 
 			for _, grants := range aclResult.Grants {
 
@@ -369,6 +371,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) utiltypes.Buckets {
 			if len(fmt.Sprintf("%v", vResult)) > 4 {
 				b.Versioning = strings.ToLower(string(vResult.Status))
 			} else {
+				log.Fatalf("Ver: %v", vResult)
 				b.Versioning = "suspended"
 			}
 
@@ -376,41 +379,52 @@ func getS3Config(credsPath *string, bucketPostfix *string) utiltypes.Buckets {
 
 		log.Debugf("Bucket: %q. Get bucket lifecycle...", *bucket.Name)
 
-		inputLfc := &s3.GetBucketLifecycleConfigurationInput{
+		input := &s3.GetBucketLifecycleConfigurationInput{
 			Bucket: aws.String(*bucket.Name),
 		}
 
-		lfResult, err := GetBucketLifecycleConfiguration(context.TODO(), client, inputLfc)
-
-		log.Debugf("Got Lifecycle result: %+v", lfResult)
+		lfResult, err := GetBucketLifecycleConfiguration(context.TODO(), client, input)
 
 		if err != nil {
-			log.Errorf("Error (raw) retriving bucket lifecycle: %q", err.Error())
+			var ae smithy.APIError
+			if errors.As(err, &ae) {
+				if ae.ErrorCode() == "NoSuchLifecycleConfiguration" {
+					log.Debugf("Bucket %q didn't have Lifecycle configuration", *bucket.Name)
+				} else {
+					log.Errorf("API error. Code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
+				}
+			} else {
+				log.Errorf("Error retriving bucket lifecycle: %q", err.Error())
+			}
+		}
 
-		} else {
+		if lfResult != nil {
+			log.Debugf("Bucket %q, Lifecycle configuration: %+v", *bucket.Name, *lfResult)
 
 			for _, r := range lfResult.Rules {
 				var lfr utiltypes.LifecycleRule
 
-				lfr.ExpirationDays = r.Expiration.Days
-				lfr.Id = *r.ID
-
-				if strings.Contains(fmt.Sprintf("%s", r), "NoncurrentVersionExpiration") {
-					lfr.NonCurrentDays = r.NoncurrentVersionExpiration.NoncurrentDays
-				} else {
-					lfr.NonCurrentDays = -1
-				}
-
 				if r.Filter != nil {
-					if reflect.TypeOf(r.Filter).String() == "*types.LifecycleRuleFilterMemberPrefix" {
-						if strings.Contains(fmt.Sprintf("%s", r), "Filter") {
+					if _, ok := r.Filter.(*types.LifecycleRuleFilterMemberPrefix); ok {
+						if strings.Contains(fmt.Sprintf("%+v", r), "Filter") {
 							// New version of Ceph return "Prefix" inside struct "Filter"
 							lfr.Prefix = r.Filter.(*types.LifecycleRuleFilterMemberPrefix).Value
-						} else if strings.Contains(fmt.Sprintf("%s", r), "Prefix") {
+						} else if strings.Contains(fmt.Sprintf("%+v", r), "Prefix") {
 							// Old version of Ceph return "Prefix" inside struct "LifecycleRule"
 							lfr.Prefix = *r.Prefix
 						}
+					} else {
+						log.Errorf("Bucket %q, Lifecycle rule: %q. Filter type '%T' not supported!", *bucket.Name, *r.ID, r.Filter)
 					}
+				}
+
+				lfr.ExpirationDays = r.Expiration.Days
+				lfr.Id = *r.ID
+
+				if r.NoncurrentVersionExpiration != nil {
+					lfr.NonCurrentDays = r.NoncurrentVersionExpiration.NoncurrentDays
+				} else {
+					lfr.NonCurrentDays = -1
 				}
 
 				lfr.Status = strings.ToLower(string(r.Status))
@@ -430,7 +444,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) utiltypes.Buckets {
 	data, err := yaml.Marshal(&buckets)
 
 	if err != nil {
-		log.Fatalf("Error while marshal buckets to YAML: %q", err.Error())
+		log.Fatalf("Error marshaling buckets to YAML: %q", err.Error())
 	}
 
 	log.Debugf("Buckets YAML:\n%s", string(data))
@@ -754,9 +768,7 @@ func applyS3Config(c *utiltypes.Buckets, credsPath *string, bucketPostfix string
 		if b.VersioningType == "updated" {
 			log.Infof("Bucket %q: Update versioning", bn)
 
-			//status := strcase.ToCamel(b.Versioning)
-			var status types.BucketVersioningStatus
-			status = types.BucketVersioningStatus(strcase.ToCamel(b.Versioning))
+			var status types.BucketVersioningStatus = types.BucketVersioningStatus(strcase.ToCamel(b.Versioning))
 
 			log.Debugf("Versioning status: %q", status)
 
@@ -770,7 +782,7 @@ func applyS3Config(c *utiltypes.Buckets, credsPath *string, bucketPostfix string
 					},
 				}
 
-				log.Debugf("Apply versioning: %+v", input)
+				log.Debugf("Apply versioning: %+v", *input)
 
 				out, err := PutBucketVersioning(context.TODO(), client, input)
 
@@ -857,7 +869,7 @@ func applyS3Config(c *utiltypes.Buckets, credsPath *string, bucketPostfix string
 					},
 				}
 
-				log.Debugf("Apply ACL: +%v", input)
+				log.Debugf("Apply ACL: %+v", *input)
 
 				out, err := PutBucketAcl(context.TODO(), client, input)
 
@@ -901,18 +913,15 @@ func applyS3Config(c *utiltypes.Buckets, credsPath *string, bucketPostfix string
 				// Specifies the expiration for the lifecycle of the object
 				status := strcase.ToCamel(lc.Status)
 				newLCRule := types.LifecycleRule{}
+				var lfcFilter types.LifecycleRuleFilter = &types.LifecycleRuleFilterMemberPrefix{Value: lc.Prefix}
 
 				if lc.NonCurrentDays >= 0 {
 					newLCRule = types.LifecycleRule{
 						Expiration: &types.LifecycleExpiration{
 							Days: lc.ExpirationDays,
 						},
-						Filter: types.LifecycleRuleFilter(
-							types.LifecycleRuleFilterMemberPrefix{
-								Value: lc.Prefix,
-							},
-						),
-						ID: aws.String(lc.Id),
+						Filter: lfcFilter,
+						ID:     aws.String(lc.Id),
 						NoncurrentVersionExpiration: &types.NoncurrentVersionExpiration{
 							NoncurrentDays: lc.NonCurrentDays,
 						},
@@ -923,11 +932,7 @@ func applyS3Config(c *utiltypes.Buckets, credsPath *string, bucketPostfix string
 						Expiration: &types.LifecycleExpiration{
 							Days: lc.ExpirationDays,
 						},
-						Filter: types.LifecycleRuleFilter(
-							types.LifecycleRuleFilterMemberPrefix{
-								Value: lc.Prefix,
-							},
-						),
+						Filter: lfcFilter,
 						ID:     aws.String(lc.Id),
 						Status: types.ExpirationStatus(status),
 					}
@@ -963,7 +968,7 @@ func applyS3Config(c *utiltypes.Buckets, credsPath *string, bucketPostfix string
 						},
 					}
 
-					log.Debugf("Apply lifecycle configuration: %+v", input)
+					log.Debugf("Apply lifecycle configuration: %+v", *input)
 
 					out, err := PutBucketLifecycleConfiguration(context.TODO(), client, input)
 
