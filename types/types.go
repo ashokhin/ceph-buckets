@@ -1,5 +1,11 @@
 package types
 
+import (
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
 type Config struct {
 	EndpointUrl  string `yaml:"endpoint_url"`
 	AwsAccessKey string `yaml:"access_key"`
@@ -52,4 +58,94 @@ func (conf *Config) SetDefaults() {
 func (b Buckets) HasKey(k string) bool {
 	_, ok := b[k]
 	return ok
+}
+
+type BucketPolicyPricipal struct {
+	PrincipalType []string `json:"AWS"`
+}
+
+type BucketPolicyStatement struct {
+	Sid       string               `json:"Sid"`
+	Action    []string             `json:"Action"`
+	Effect    string               `json:"Effect"`
+	Resource  []string             `json:"Resource"`
+	Principal BucketPolicyPricipal `json:"Principal"`
+}
+
+type BucketPolicy struct {
+	Id        string                  `json:"Id"`
+	Version   string                  `json:"Version"`
+	Statement []BucketPolicyStatement `json:"Statement"`
+}
+
+type S3ListBucketsAPI interface {
+	ListBuckets(ctx context.Context,
+		params *s3.ListBucketsInput,
+		optFns ...func(*s3.Options)) (*s3.ListBucketsOutput, error)
+}
+
+/*
+	Bucket ACL not supported yet in Ceph RGW S3
+*/
+type S3GetBucketAclAPI interface {
+	GetBucketAcl(ctx context.Context,
+		params *s3.GetBucketAclInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketAclOutput, error)
+}
+
+type S3GetBucketPolicyAPI interface {
+	GetBucketPolicy(ctx context.Context,
+		params *s3.GetBucketPolicyInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketPolicyOutput, error)
+}
+
+type S3GetBucketLfcAPI interface {
+	GetBucketLifecycleConfiguration(ctx context.Context,
+		params *s3.GetBucketLifecycleConfigurationInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketLifecycleConfigurationOutput, error)
+}
+
+type S3GetBucketVerAPI interface {
+	GetBucketVersioning(ctx context.Context,
+		params *s3.GetBucketVersioningInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error)
+}
+
+type S3CreateBucketAPI interface {
+	CreateBucket(ctx context.Context,
+		params *s3.CreateBucketInput,
+		optFns ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+}
+
+type S3PutBucketVerAPI interface {
+	PutBucketVersioning(ctx context.Context,
+		params *s3.PutBucketVersioningInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketVersioningOutput, error)
+}
+
+/*
+	Bucket ACL not supported yet in Ceph RGW S3
+*/
+type S3PutBucketAclAPI interface {
+	PutBucketAcl(ctx context.Context,
+		params *s3.PutBucketAclInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketAclOutput, error)
+}
+
+type S3PutBucketPolicyAPI interface {
+	PutBucketPolicy(ctx context.Context,
+		params *s3.PutBucketPolicyInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketPolicyOutput, error)
+}
+
+type S3DeleteBucketLifecycleAPI interface {
+	DeleteBucketLifecycle(ctx context.Context,
+		params *s3.DeleteBucketLifecycleInput,
+		optFns ...func(*s3.Options)) (*s3.DeleteBucketLifecycleOutput, error)
+}
+
+type S3PutBucketLifecycleConfigurationAPI interface {
+	PutBucketLifecycleConfiguration(ctx context.Context,
+		params *s3.PutBucketLifecycleConfigurationInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
 }
