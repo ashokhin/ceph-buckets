@@ -5,7 +5,8 @@ go 1.16
 require (
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
-	github.com/ashokhin/ceph-buckets/types v0.0.0-20210908101852-3a7986df8ac8
+	github.com/ashokhin/ceph-buckets/funcs v0.0.0-20210910055508-809bbd7e4670
+	github.com/ashokhin/ceph-buckets/types v0.0.0-20210910055128-731cc1e6f17c
 	github.com/aws/aws-sdk-go-v2 v1.9.0
 	github.com/aws/aws-sdk-go-v2/config v1.8.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.4.0
