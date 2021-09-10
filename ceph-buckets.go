@@ -374,12 +374,14 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 					log.Debugf("Bucket %q didn't have Bucket policy", *bucket.Name)
 				} else {
 					log.Errorf("API error. Code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
+
+					b.AclType = "error"
 				}
 			} else {
 				log.Errorf("Error retriving Bucket policies: %q", err.Error())
-			}
 
-			b.AclType = "error"
+				b.AclType = "error"
+			}
 		} else {
 			log.Debugf("Bucket %q: Bucket policies:\n%+v", *bucket.Name, *polResult.Policy)
 
