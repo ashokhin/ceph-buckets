@@ -228,6 +228,18 @@ func keyInArray(arr []string, key string) bool {
 	return false
 }
 
+func getUsersFromPrincipalArray(arr []string) []string {
+	var u []string
+
+	re := regexp.MustCompile(`^.+user\/`)
+
+	for _, p := range arr {
+		u = append(u, re.ReplaceAllString(p, ""))
+	}
+
+	return u
+}
+
 func createS3SvcClient(credsPath *string) *s3.Client {
 	var s3Url string
 
@@ -378,16 +390,22 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 
 				switch sat := st.Action; {
 				case keyInArray(sat, "s3:*"):
-					b.Acl.Grants.FullControl = st.Principal.PrincipalType
+					b.Acl.Grants.FullControl = getUsersFromPrincipalArray(st.Principal.PrincipalType)
+					// Always add owner
+					if !keyInArray(b.Acl.Grants.FullControl, b.Acl.Owner.Id) {
+						b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, b.Acl.Owner.Id)
+					}
 				case (keyInArray(sat, "s3:GetObject") && !keyInArray(sat, "s3:PutObject")):
-					b.Acl.Grants.Read = st.Principal.PrincipalType
+					b.Acl.Grants.Read = getUsersFromPrincipalArray(st.Principal.PrincipalType)
 				case keyInArray(sat, "s3:PutObject"):
-					b.Acl.Grants.Write = st.Principal.PrincipalType
+					b.Acl.Grants.Write = getUsersFromPrincipalArray(st.Principal.PrincipalType)
 				default:
 					log.Fatalf("Bucket policy statement action type unsupported: %+v", sat)
 				}
 
 			}
+
+			log.Debugf("Bucket %q: ACL updated from Bucket policies: %+v", *bucket.Name, b.Acl)
 
 		}
 
@@ -779,11 +797,17 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		var pta []string
 
 		for _, u := range b.Acl.Grants.FullControl {
-			if !(u == b.Acl.Owner.Id) && !strings.Contains(u, ":") {
-				pta = append(pta, fmt.Sprintf("%s:%s", b.Acl.Owner.Id, u))
-			} else {
-				pta = append(pta, u)
+
+			switch s := u; {
+			case s == b.Acl.Owner.Id:
+				log.Debugf("Skip bucket owner: %s", s)
+			case strings.Contains(s, ":"):
+				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
+			default:
+				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
+
 			}
+
 		}
 
 		ps = ut.BucketPolicyStatement{
@@ -793,8 +817,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 			},
 			Effect: "Allow",
 			Resource: []string{
-				*bn,
-				fmt.Sprintf("%s/*", *bn),
+				fmt.Sprintf("arn:aws:s3:::%s", *bn),
 			},
 			Principal: ut.BucketPolicyPricipal{
 				PrincipalType: pta,
@@ -813,11 +836,17 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		var pta []string
 
 		for _, u := range b.Acl.Grants.Read {
-			if !(u == b.Acl.Owner.Id) && !strings.Contains(u, ":") {
-				pta = append(pta, fmt.Sprintf("%s:%s", b.Acl.Owner.Id, u))
-			} else {
-				pta = append(pta, u)
+
+			switch s := u; {
+			case s == b.Acl.Owner.Id:
+				log.Debugf("Skip bucket owner: %s", s)
+			case strings.Contains(s, ":"):
+				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
+			default:
+				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
+
 			}
+
 		}
 
 		ps = ut.BucketPolicyStatement{
@@ -825,8 +854,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 			Action: BucketPolicyReadAction,
 			Effect: "Allow",
 			Resource: []string{
-				*bn,
-				fmt.Sprintf("%s/*", *bn),
+				fmt.Sprintf("arn:aws:s3:::%s", *bn),
 			},
 			Principal: ut.BucketPolicyPricipal{
 				PrincipalType: pta,
@@ -845,11 +873,17 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		var pta []string
 
 		for _, u := range b.Acl.Grants.Write {
-			if !(u == b.Acl.Owner.Id) && !strings.Contains(u, ":") {
-				pta = append(pta, fmt.Sprintf("%s:%s", b.Acl.Owner.Id, u))
-			} else {
-				pta = append(pta, u)
+
+			switch s := u; {
+			case s == b.Acl.Owner.Id:
+				log.Debugf("Skip bucket owner: %s", s)
+			case strings.Contains(s, ":"):
+				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
+			default:
+				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
+
 			}
+
 		}
 
 		ps = ut.BucketPolicyStatement{
@@ -857,8 +891,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 			Action: BucketPolicyWriteAction,
 			Effect: "Allow",
 			Resource: []string{
-				*bn,
-				fmt.Sprintf("%s/*", *bn),
+				fmt.Sprintf("arn:aws:s3:::%s", *bn),
 			},
 			Principal: ut.BucketPolicyPricipal{
 				PrincipalType: pta,
