@@ -274,7 +274,7 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 			yamlConfig.AwsSecretKey, "")))
 
 	if err != nil {
-		log.Fatalf("failed to load configuration, %v", err)
+		log.Fatalf("Failed to load configuration, %v", err)
 	}
 
 	return s3.NewFromConfig(cfg)
@@ -368,7 +368,16 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 		polResult, err := uf.GetBucketPolicy(context.TODO(), client, inputPol)
 
 		if err != nil {
-			log.Errorf("Error retriving Bucket policies: %q", err.Error())
+			var ae smithy.APIError
+			if errors.As(err, &ae) {
+				if ae.ErrorCode() == "NoSuchBucketPolicy" {
+					log.Debugf("Bucket %q didn't have Bucket policy", *bucket.Name)
+				} else {
+					log.Errorf("API error. Code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
+				}
+			} else {
+				log.Errorf("Error retriving Bucket policies: %q", err.Error())
+			}
 
 			b.AclType = "error"
 		} else {
@@ -400,7 +409,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 				case keyInArray(sat, "s3:PutObject"):
 					b.Acl.Grants.Write = getUsersFromPrincipalArray(st.Principal.PrincipalType)
 				default:
-					log.Fatalf("Bucket policy statement action type unsupported: %+v", sat)
+					log.Errorf("Bucket policy statement action type unsupported: %+v", sat)
 				}
 
 			}
