@@ -22,6 +22,13 @@
         - "FULL_CONTROL"
         - "READ"
         - "WRITE"
+
+      :exclamation: ВНИМАНИЕ! На данный момент (10.12.2021) Bucket ACL не поддерживается в Ceph RGW S3 [(ссылка на документацию)](https://docs.ceph.com/en/nautilus/radosgw/bucketpolicy/). Цитата:
+
+      > We do not yet support setting policies on users, groups, or roles.
+
+      В связи с этим, права доступа пока управляются через методы Bucket policy.
+      
     - Создание/изменение параметров жизненного цикла файлов (**Lifecycle Configuration** [(ссылка на документацию)](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html)). Поддеживаемый тип <sup id="a3">[3](#f3)</sup>:
         - "Expiration actions"
 
