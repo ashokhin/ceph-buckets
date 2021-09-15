@@ -24,10 +24,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/iancoleman/strcase"
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/alecthomas/kingpin.v2"
-	yaml "gopkg.in/yaml.v3"
+	yaml "gopkg.in/yaml.v2"
 )
 
 const (
@@ -39,6 +40,8 @@ const (
 )
 
 var (
+	logger log.Logger
+
 	appName      = "ceph-buckets"
 	appBranch    = "None"
 	appVersion   = "dev"
@@ -150,14 +153,14 @@ func readFile(fs *string) ([]byte, bool) {
 	var f []byte
 	var readOk bool
 
-	log.Debugf("Read file %q", *fs)
+	level.Debug(logger).Log("msg", "read file", "file", *fs)
 
 	readOk = FileExists(*fs)
 
 	f, err := ioutil.ReadFile(*fs)
 
 	if err != nil {
-		log.Warnf("Error while read file: %q", err.Error())
+		level.Warn(logger).Log("msg", "error reading file", "file", *fs, "err", err.Error())
 
 		readOk = false
 	}
@@ -166,7 +169,7 @@ func readFile(fs *string) ([]byte, bool) {
 }
 
 func writeFile(fs *string, data *[]byte) error {
-	log.Debugf("Write file %q", *fs)
+	level.Debug(logger).Log("msg", "write file", "file", *fs)
 
 	err := ioutil.WriteFile(*fs, *data, 0644)
 	return err
@@ -180,7 +183,7 @@ func loadConfig(fs *string) (*ut.Config, bool) {
 	err := yaml.Unmarshal(f, &cfg)
 
 	if err != nil {
-		log.Errorf("Error unmarshaling YAML-config: %q", err.Error())
+		level.Error(logger).Log("msg", "error unmarshaling YAML-config", "err", err.Error())
 
 		os.Exit(2)
 	}
@@ -195,12 +198,12 @@ func checkBucketName(b string) bool {
 	if re.MatchString(b) {
 		return true
 	} else {
-		log.Warnf(`String %q doesn't match naming rules and will be skipped.
+		level.Warn(logger).Log("msg", `String doesn't match naming rules and will be skipped.
 The following rules apply for naming buckets in Amazon S3:
 * Bucket names must be between 3 and 63 characters long.
 * Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
 * Bucket names must begin and end with a lowercase letter.
-	`, b)
+	`, "value", b)
 
 		return false
 	}
@@ -243,16 +246,20 @@ func getUsersFromPrincipalArray(arr []string) []string {
 func createS3SvcClient(credsPath *string) *s3.Client {
 	var s3Url string
 
-	log.Debug("Create client for specified context")
-	log.Debugf("Loading S3 connection settings from %q", *credsPath)
+	yamlConfig := new(ut.Config)
+
+	level.Debug(logger).Log("msg", "create client for specified context")
+	level.Debug(logger).Log("msg", "loading S3 connection settings from file", "file", *credsPath)
+
+	yamlConfig.SetDefaults()
 
 	yamlConfig, loadOk := loadConfig(credsPath)
 
 	if !loadOk {
-		log.Warnf("Config %q isn't loaded", *credsPath)
+		level.Warn(logger).Log("msg", "config isn't loaded from file. Use default values", "file", *credsPath)
 	}
 
-	yamlConfig.SetDefaults()
+	level.Debug(logger).Log("msg", "show yamlConfig", "value", fmt.Sprintf("%+v", *yamlConfig))
 
 	if yamlConfig.DisableSSL {
 		s3Url = fmt.Sprintf("http://%s/", yamlConfig.EndpointUrl)
@@ -274,7 +281,9 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 			yamlConfig.AwsSecretKey, "")))
 
 	if err != nil {
-		log.Fatalf("Failed to load configuration, %v", err)
+		level.Error(logger).Log("msg", "failed to load configuration", "err", err.Error())
+
+		os.Exit(1)
 	}
 
 	return s3.NewFromConfig(cfg)
@@ -283,16 +292,18 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 	client := createS3SvcClient(credsPath)
 
-	log.Info("List buckets from S3 storage")
+	level.Info(logger).Log("msg", "list buckets from S3 storage")
 
 	inputList := &s3.ListBucketsInput{}
 	listResult, err := uf.ListBuckets(context.TODO(), client, inputList)
 
 	if err != nil {
-		log.Fatalf("Error retrieving buckets: %q", err.Error())
+		level.Error(logger).Log("msg", "error retrieving buckets", "err", err.Error())
+
+		os.Exit(1)
 	}
 
-	log.Info("Buckets listed successfully")
+	level.Info(logger).Log("msg", "buckets listed successfully")
 
 	buckets := make(ut.Buckets)
 	matchPattern := fmt.Sprintf("%s$", *bucketPostfix)
@@ -304,13 +315,13 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 
 		if len(*bucketPostfix) > 0 {
 			if re.MatchString(*bucket.Name) {
-				log.Debugf("Bucket %q was match pattern %q. Rename.", *bucket.Name, matchPattern)
+				level.Debug(logger).Log("msg", "was match pattern. Rename", "bucket", *bucket.Name, "regexp", matchPattern)
 
 				//Create name w/o postfix
 				bn = re.ReplaceAllString(*bucket.Name, "")
-				log.Debugf("New name: %q", bn)
+				level.Debug(logger).Log("msg", "new name", "value", bn)
 			} else {
-				log.Warnf("Bucket %q doesn't match pattern %q", *bucket.Name, matchPattern)
+				level.Warn(logger).Log("msg", "name doesn't match pattern", "bucket", *bucket.Name, "regexp", matchPattern)
 
 				bn = *bucket.Name
 			}
@@ -322,7 +333,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			Get Bucket ACL
 			Bucket ACL not supported yet in Ceph RGW S3 we use only owner now
 		*/
-		log.Debugf("Bucket: %q. Get bucket ACL...", *bucket.Name)
+		level.Debug(logger).Log("msg", "get bucket ACL", "bucket", *bucket.Name)
 
 		inputAcl := &s3.GetBucketAclInput{
 			Bucket: bucket.Name,
@@ -330,11 +341,11 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 		aclResult, err := uf.GetBucketAcl(context.TODO(), client, inputAcl)
 
 		if err != nil {
-			log.Errorf("Error retriving bucket ACL: %q", err.Error())
+			level.Error(logger).Log("msg", "error retriving bucket ACL", "bucket", *bucket.Name, "err", err.Error())
 
 			b.AclType = "error"
 		} else {
-			log.Debugf("Bucket: %q, ACL: %+v", *bucket.Name, *aclResult)
+			level.Debug(logger).Log("msg", "show ACL", "bucket", *bucket.Name, "value", fmt.Sprintf("%+v", *aclResult))
 
 			for _, grants := range aclResult.Grants {
 
@@ -346,7 +357,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 				case "WRITE":
 					b.Acl.Grants.Write = append(b.Acl.Grants.Write, *grants.Grantee.ID)
 				default:
-					log.Warnf("Permission type %q unsupported. Skip permission type", grants.Permission)
+					level.Warn(logger).Log("msg", "permission type unsupported. Skip permission type", "bucket", *bucket.Name, "value", grants.Permission)
 				}
 			}
 
@@ -359,7 +370,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			Rewrite ACL rules from bucket policies
 		*/
 
-		log.Debugf("Bucket %q: Get Bucket policies...", *bucket.Name)
+		level.Debug(logger).Log("msg", "get bucket policies", "bucket", *bucket.Name)
 
 		inputPol := &s3.GetBucketPolicyInput{
 			Bucket: bucket.Name,
@@ -371,31 +382,31 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			var ae smithy.APIError
 			if errors.As(err, &ae) {
 				if ae.ErrorCode() == "NoSuchBucketPolicy" {
-					log.Debugf("Bucket %q didn't have Bucket policy", *bucket.Name)
+					level.Debug(logger).Log("msg", "didn't have bucket policy", "bucket", *bucket.Name)
 				} else {
-					log.Errorf("API error. Code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
+					level.Error(logger).Log("msg", "API error", "code", ae.ErrorCode(), "message", ae.ErrorMessage(), "err", ae.ErrorFault().String())
 
 					b.AclType = "error"
 				}
 			} else {
-				log.Errorf("Error retriving Bucket policies: %q", err.Error())
+				level.Error(logger).Log("msg", "error retriving bucket policies", "bucket", *bucket.Name, "err", err.Error())
 
 				b.AclType = "error"
 			}
 		} else {
-			log.Debugf("Bucket %q: Bucket policies:\n%+v", *bucket.Name, *polResult.Policy)
+			level.Debug(logger).Log("msg", "show bucket policies", "bucket", *bucket.Name, "value", fmt.Sprintf("%+v", *polResult.Policy))
 
 			var bp ut.BucketPolicy
 
 			err := json.Unmarshal([]byte(*polResult.Policy), &bp)
 
 			if err != nil {
-				log.Errorf("Error unmarshaling Bucket policies: %q", err.Error())
+				level.Error(logger).Log("msg", "error unmarshaling Bucket policies", "bucket", *bucket.Name, "err", err.Error())
 
 				b.AclType = "error"
 			}
 
-			log.Debugf("Bucket %q: Bucket policies struct: %+v", *bucket.Name, bp)
+			level.Debug(logger).Log("msg", "show bucket policies struct", "bucket", *bucket.Name, "value", fmt.Sprintf("%+v", bp))
 
 			for _, st := range bp.Statement {
 
@@ -411,19 +422,19 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 				case keyInArray(sat, "s3:PutObject"):
 					b.Acl.Grants.Write = getUsersFromPrincipalArray(st.Principal.PrincipalType)
 				default:
-					log.Errorf("Bucket policy statement action type unsupported: %+v", sat)
+					level.Error(logger).Log("msg", "bucket policy statement", "bucket", *bucket.Name, "value", sat, "err", "action type unsupported")
 				}
 
 			}
 
-			log.Debugf("Bucket %q: ACL updated from Bucket policies: %+v", *bucket.Name, b.Acl)
+			level.Debug(logger).Log("msg", "ACL updated from bucket policies", "bucket", *bucket.Name, "value", fmt.Sprintf("%+v", b.Acl))
 
 		}
 
 		/*
 			Get Bucket versioning status
 		*/
-		log.Debugf("Bucket %q: Get bucket versioning...", *bucket.Name)
+		level.Debug(logger).Log("msg", "get bucket versioning", "bucket", *bucket.Name)
 
 		inputVer := &s3.GetBucketVersioningInput{
 			Bucket: aws.String(*bucket.Name),
@@ -432,7 +443,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 		vResult, err := uf.GetBucketVersioning(context.TODO(), client, inputVer)
 
 		if err != nil {
-			log.Errorf("Error while retriving versioning configuration: %q", err.Error())
+			level.Error(logger).Log("msg", "error while retriving versioning configuration", "err", err.Error())
 
 			b.VersioningType = "error"
 		} else {
@@ -443,9 +454,8 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			}
 		}
 
-		log.Debugf("Bucket: %q. Versioning status: %q", *bucket.Name, b.Versioning)
-
-		log.Debugf("Bucket: %q. Get bucket lifecycle...", *bucket.Name)
+		level.Debug(logger).Log("msg", "show versioning status", "bucket", *bucket.Name, "value", b.Versioning)
+		level.Debug(logger).Log("msg", "get bucket lifecycle", "bucket", *bucket.Name)
 
 		input := &s3.GetBucketLifecycleConfigurationInput{
 			Bucket: aws.String(*bucket.Name),
@@ -457,17 +467,17 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			var ae smithy.APIError
 			if errors.As(err, &ae) {
 				if ae.ErrorCode() == "NoSuchLifecycleConfiguration" {
-					log.Debugf("Bucket %q didn't have Lifecycle configuration", *bucket.Name)
+					level.Debug(logger).Log("msg", "didn't have Lifecycle configuration", "bucket", *bucket.Name)
 				} else {
-					log.Errorf("API error. Code: %s, message: %s, fault: %s", ae.ErrorCode(), ae.ErrorMessage(), ae.ErrorFault().String())
+					level.Error(logger).Log("msg", "API error", "code", ae.ErrorCode(), "message", ae.ErrorMessage(), "err", ae.ErrorFault().String())
 				}
 			} else {
-				log.Errorf("Error retriving bucket lifecycle: %q", err.Error())
+				level.Error(logger).Log("msg", "error retriving bucket lifecycle", "bucket", *bucket.Name, "err", err.Error())
 			}
 		}
 
 		if lfResult != nil {
-			log.Debugf("Bucket %q, Lifecycle configuration: %+v", *bucket.Name, *lfResult)
+			level.Debug(logger).Log("msg", "show lifecycle configuration", "bucket", *bucket.Name, "value", fmt.Sprintf("%+v", *lfResult))
 
 			for _, r := range lfResult.Rules {
 				var lfr ut.LifecycleRule
@@ -482,7 +492,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 							lfr.Prefix = *r.Prefix
 						}
 					} else {
-						log.Errorf("Bucket %q, Lifecycle rule: %q. Filter type '%T' not supported!", *bucket.Name, *r.ID, r.Filter)
+						level.Error(logger).Log("msg", "lifecycle rule of filter type not supported!", "bucket", *bucket.Name, "name", *r.ID, "type", fmt.Sprintf("%T", r.Filter))
 					}
 				}
 
@@ -506,28 +516,30 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 
 	}
 
-	log.Debugf("Buckets golang struct: %+v", buckets)
-	log.Debug("Test YAML marshaling...")
+	level.Debug(logger).Log("msg", "show buckets golang struct", "value", fmt.Sprintf("%+v", buckets))
+	level.Debug(logger).Log("msg", "test YAML marshaling")
 
 	data, err := yaml.Marshal(&buckets)
 
 	if err != nil {
-		log.Fatalf("Error marshaling buckets to YAML: %q", err.Error())
+		level.Error(logger).Log("msg", "error marshaling buckets to YAML", "err", err.Error())
+
+		os.Exit(1)
 	}
 
-	log.Debugf("Buckets YAML:\n%s", string(data))
+	level.Debug(logger).Log("msg", "show buckets YAML", "value", string(data))
 
 	return buckets
 }
 
 func createS3ConfigFile(confPath string, credsPath string, bucketPostfix string) int {
 	buckets := getS3Config(&credsPath, &bucketPostfix)
-	log.Infof("Write config to %q", confPath)
+	level.Info(logger).Log("msg", "write config to file", "file", confPath)
 
 	err := writeConfig(&buckets, &confPath)
 
 	if err != nil {
-		log.Errorf("Error writing file %q: %q", confPath, err.Error())
+		level.Error(logger).Log("msg", "error writing file", "file", confPath, "err", err.Error())
 
 		return 1
 	}
@@ -540,13 +552,13 @@ func loadS3ConfigFile(fs *string) (ut.Buckets, bool) {
 	f, readOk := readFile(fs)
 
 	if !readOk {
-		log.Warnf("File %q isn't readed", *fs)
+		level.Warn(logger).Log("msg", "fileisn't readed", "file", *fs)
 	}
 
 	err := yaml.Unmarshal(f, &cfg)
 
 	if err != nil {
-		log.Errorf("Error unmarshaling YAML-config: %q", err.Error())
+		level.Error(logger).Log("msg", "error unmarshaling YAML-config", "err", err.Error())
 
 		os.Exit(2)
 	}
@@ -559,12 +571,12 @@ func updateConfigFromApp(appPath string, confPath string) int {
 
 	needUpdate := false
 
-	log.Infof("Read file %q", appPath)
+	level.Info(logger).Log("msg", "read file", "file", appPath)
 
 	fc, err := os.Open(appPath)
 
 	if err != nil {
-		log.Errorf("Error openning file: %q", err.Error())
+		level.Error(logger).Log("msg", "error openning file", "file", appPath, "err", err.Error())
 
 		return 1
 	}
@@ -577,7 +589,7 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		s := scanner.Text()
 
 		if checkBucketName(s) {
-			log.Debugf("Bucket %q founded in %q", s, appPath)
+			level.Debug(logger).Log("msg", "bucket founded in file", "bucket", s, "file", appPath)
 
 		} else {
 			continue
@@ -586,24 +598,26 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		appBuckets = append(appBuckets, s)
 	}
 
-	log.Debugf("appBuckets: %+v", appBuckets)
-	log.Infof("Load buckets configuration from %q", confPath)
+	level.Debug(logger).Log("msg", "show application buckets", "value", fmt.Sprintf("%+v", appBuckets))
+	level.Info(logger).Log("msg", "load buckets configuration from file", "file", confPath)
 
 	confBuckets, loadOk := loadS3ConfigFile(&confPath)
 
 	if loadOk {
 
 		if *debug {
-			log.Debug("Buckets loaded:")
+			level.Debug(logger).Log("msg", "buckets loaded")
 
 			for _, confBucket := range confBuckets {
 				fmt.Printf("\t- %+v\n", confBucket)
+
+				level.Debug(logger).Log("msg", "bucket loaded", "bucket", confBucket)
 			}
 
 		}
 
 	} else {
-		log.Warn("Create new configuration")
+		level.Warn(logger).Log("msg", "create new configuration")
 
 		confBuckets = make(ut.Buckets)
 	}
@@ -611,14 +625,14 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	for _, appBucket := range appBuckets {
 
 		if _, ok := confBuckets[appBucket]; ok {
-			log.Debugf("Bucket %q already in %q", appBucket, confPath)
+			level.Debug(logger).Log("msg", "bucket already in file", "bucket", appBucket, "file", confPath)
 
 			continue
 		}
 
 		var b ut.Bucket
 
-		log.Infof("Bucket %q is new. Add in %q", appBucket, confPath)
+		level.Info(logger).Log("msg", "bucket is new. Add in file", "bucket", appBucket, "file", confPath)
 
 		needUpdate = true
 		// Versioning disabled by default
@@ -628,19 +642,19 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	}
 
 	if needUpdate {
-		log.Debugf("New buckets config: %+v", confBuckets)
-		log.Infof("Write new configuration to %q", confPath)
+		level.Debug(logger).Log("msg", "new buckets config", "value", fmt.Sprintf("%+v", confBuckets))
+		level.Info(logger).Log("msg", "write new configuration to file", "file", confPath)
 
 		err := writeConfig(&confBuckets, &confPath)
 
 		if err != nil {
-			log.Errorf("Error writing file %q: %q", confPath, err.Error())
+			level.Error(logger).Log("msg", "error writing file", "file", confPath, "err", err.Error())
 
 			return 1
 		}
 
 	} else {
-		log.Infof("Configuration in file %q already is up to date", confPath)
+		level.Info(logger).Log("msg", "configuration in file already is up to date", "file", confPath)
 	}
 
 	return 0
@@ -672,22 +686,22 @@ func arrayIsEqual(a1 []string, a2 []string) bool {
 	Bucket ACL not supported yet in Ceph RGW S3
 */
 func aclEqual(lc *ut.Bucket, sc ut.Bucket, b *string) bool {
-	log.Debugf("Compare ACLs for bucket %q", *b)
+	level.Debug(logger).Log("msg", "compare ACLs for bucket", "bucket", *b)
 
 	if !reflect.DeepEqual(lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl) {
-		log.Debugf("ACL FullControl %+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl)
+		level.Debug(logger).Log("msg", fmt.Sprintf("ACL fullControl %+v != %+v", lc.Acl.Grants.FullControl, sc.Acl.Grants.FullControl))
 
 		return false
 	}
 
 	if !arrayIsEqual(lc.Acl.Grants.Read, sc.Acl.Grants.Read) {
-		log.Debugf("ACL Read %+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read)
+		level.Debug(logger).Log("msg", fmt.Sprintf("ACL read %+v != %+v", lc.Acl.Grants.Read, sc.Acl.Grants.Read))
 
 		return false
 	}
 
 	if !arrayIsEqual(lc.Acl.Grants.Write, sc.Acl.Grants.Write) {
-		log.Debugf("ACL Write %+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write)
+		level.Debug(logger).Log("msg", fmt.Sprintf("ACL write %+v != %+v", lc.Acl.Grants.Write, sc.Acl.Grants.Write))
 
 		return false
 	}
@@ -697,14 +711,14 @@ func aclEqual(lc *ut.Bucket, sc ut.Bucket, b *string) bool {
 }
 
 func lfcIsEqual(lc *ut.Bucket, sc ut.Bucket, b *string) bool {
-	log.Debugf("Compare Lifecycle Configuration for bucket %q", *b)
+	level.Debug(logger).Log("msg", "compare lifecycle configuration for bucket", "bucket", *b)
 
 	if len(lc.LifecycleRules) == len(sc.LifecycleRules) {
 
 		for i, v := range lc.LifecycleRules {
 
 			if !reflect.DeepEqual(v, sc.LifecycleRules[i]) {
-				log.Debugf("LC cmp %+v != %+v", v, sc.LifecycleRules[i])
+				level.Debug(logger).Log("msg", fmt.Sprintf("lifecycle configuration %+v != %+v", v, sc.LifecycleRules[i]))
 
 				return false
 			}
@@ -713,7 +727,7 @@ func lfcIsEqual(lc *ut.Bucket, sc ut.Bucket, b *string) bool {
 		for i, v := range sc.LifecycleRules {
 
 			if !reflect.DeepEqual(v, lc.LifecycleRules[i]) {
-				log.Debugf("LC cmp %+v != %+v", v, lc.LifecycleRules[i])
+				level.Debug(logger).Log("msg", fmt.Sprintf("lifecycle configuration %+v != %+v", v, lc.LifecycleRules[i]))
 
 				return false
 			}
@@ -731,13 +745,13 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 
 	newCfg := make(ut.Buckets)
 
-	log.Info("Compare local and server's configurations")
+	level.Info(logger).Log("msg", "compare local and server's configurations")
 
 	for k, v := range lc {
 
 		if sc.HasKey(k) {
-			log.Debugf("Bucket %q already exist on server", k)
-			log.Debugf("Add server struct to result configuration: %+v", sc[k])
+			level.Debug(logger).Log("msg", "bucket already exist on server", "bucket", k)
+			level.Debug(logger).Log("msg", "add server struct to result configuration", "value", fmt.Sprintf("%+v", sc[k]))
 
 			newCfgBucket := sc[k]
 			// Compare ACLs
@@ -745,7 +759,7 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 				Bucket ACL not supported yet in Ceph RGW S3
 			*/
 			if !aclEqual(&v, sc[k], &k) {
-				log.Infof("Update ACL for bucket %q", k)
+				level.Info(logger).Log("msg", "update ACL for bucket", "bucket", k)
 
 				newCfgBucket.Acl.Grants.FullControl = v.Acl.Grants.FullControl
 				newCfgBucket.Acl.Grants.Read = v.Acl.Grants.Read
@@ -756,8 +770,8 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 
 			// Compare versioning
 			if sc[k].Versioning != v.Versioning {
-				log.Infof("Update versioning configuration for bucket %q", k)
-				log.Debugf("Versioning is %q now", v.Versioning)
+				level.Info(logger).Log("msg", "update versioning configuration for bucket", "bucket", k)
+				level.Debug(logger).Log("msg", "versioning changed", "value", v.Versioning)
 
 				newCfgBucket.Versioning = v.Versioning
 				newCfgBucket.VersioningType = "updated"
@@ -768,7 +782,7 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 			if len(sc[k].LifecycleRules) > 0 || len(v.LifecycleRules) > 0 {
 
 				if !lfcIsEqual(&v, sc[k], &k) {
-					log.Infof("Update lifecycle configuration for bucket %q", k)
+					level.Info(logger).Log("msg", "update lifecycle configuration for bucket", "bucket", k)
 
 					newCfgBucket.LifecycleRules = v.LifecycleRules
 					newCfgBucket.LifecycleType = "updated"
@@ -780,13 +794,13 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 			newCfg[k] = newCfgBucket
 
 		} else {
-			log.Debugf("Bucket %q doesn't exist on server", k)
+			level.Debug(logger).Log("msg", "bucket doesn't exist on server", "bucket", k)
 
 			v.AclType = "new"
 			v.BucketType = "new"
 			v.LifecycleType = "new"
 
-			log.Debugf("Add new bucket to server's configuration: %+v", v)
+			level.Debug(logger).Log("msg", "add new bucket to server's configuration", "value", fmt.Sprintf("%+v", v))
 
 			newCfg[k] = v
 			needUpdate = true
@@ -811,7 +825,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 			switch s := u; {
 			case s == b.Acl.Owner.Id:
-				log.Debugf("Skip bucket owner: %s", s)
+				level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
 			case strings.Contains(s, ":"):
 				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
 			default:
@@ -838,7 +852,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		if len(ps.Principal.PrincipalType) > 0 {
 			psa = append(psa, ps)
 		} else {
-			log.Debugf("Bucket %q: 'FULL_CONTROL' Bucket policy statement didn't have principals. Skip. Bucket policy template:\n%+v", *bn, ps)
+			level.Debug(logger).Log("msg", "'FULL_CONTROL' bucket policy statement didn't have principals. Skip. Show bucket policy template", "bucket", *bn, "value", fmt.Sprintf("%+v", ps))
 		}
 
 	}
@@ -850,12 +864,11 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 			switch s := u; {
 			case s == b.Acl.Owner.Id:
-				log.Debugf("Skip bucket owner: %s", s)
+				level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
 			case strings.Contains(s, ":"):
 				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
 			default:
 				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
-
 			}
 
 		}
@@ -875,7 +888,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		if len(ps.Principal.PrincipalType) > 0 {
 			psa = append(psa, ps)
 		} else {
-			log.Debugf("Bucket %q: 'READ' Bucket policy statement didn't have principals. Skip. Bucket policy template:\n%+v", *bn, ps)
+			level.Debug(logger).Log("msg", "'READ' bucket policy statement didn't have principals. Skip. Bucket policy template", "bucket", *bn, "value", fmt.Sprintf("%+v", ps))
 		}
 
 	}
@@ -887,7 +900,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 			switch s := u; {
 			case s == b.Acl.Owner.Id:
-				log.Debugf("Skip bucket owner: %s", s)
+				level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
 			case strings.Contains(s, ":"):
 				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
 			default:
@@ -912,7 +925,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		if len(ps.Principal.PrincipalType) > 0 {
 			psa = append(psa, ps)
 		} else {
-			log.Debugf("Bucket %q: 'WRITE' Bucket policy statement didn't have principals. Skip. Bucket policy template:\n%+v", *bn, ps)
+			level.Debug(logger).Log("msg", "'WRITE' bucket policy statement didn't have principals. Skip. Bucket policy template", "bucket", *bn, "value", fmt.Sprintf("%+v", ps))
 		}
 
 	}
@@ -936,8 +949,8 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 	var retryCount int
 
-	log.Infof("Bucket %q: Update ACL", bn)
-	log.Debugf("Bucket %q: Get owner", bn)
+	level.Info(logger).Log("msg", "update ACL", "bucket", bn)
+	level.Debug(logger).Log("msg", "get owner", "bucket", bn)
 
 	retryCount = retryNum
 	input := &s3.GetBucketAclInput{
@@ -947,7 +960,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 	ba, err := GetBucketAcl(context.TODO(), client, input)
 
 	if err != nil {
-		log.Errorf("Error retriving ACL: %q", err.Error())
+		level.Error(logger).Log("msg", "error retriving ACL", "err", err.Error())
 
 		return false
 	}
@@ -980,7 +993,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		grants = append(grants, newGrant)
 	}
 
-	log.Debugf("Bucket %q: Set grants: %+v", bn, grants)
+	level.Debug(logger).Log("msg", "set grants", "bucket", bn, "value", fmt.Sprintf(grants))
 
 	retryCount = retryNum
 
@@ -996,14 +1009,14 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 			},
 		}
 
-		log.Debugf("Bucket %q: Apply ACL: %+v", bn, *input)
+		level.Debug(logger).Log("msg", "apply ACL", "bucket", bn, "value", fmt.Sprintf(*input))
 
 		out, err := PutBucketAcl(context.TODO(), client, input)
 
 		retryCount--
 
 		if err != nil {
-			log.Debugf("Error applying ACL: %q. Out: %+v\nRetry attempts left: %v", err.Error(), out, retryCount)
+			level.Debug(logger).Log("msg", "error applying ACL", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
 			time.Sleep(1 * time.Second)
 
@@ -1012,7 +1025,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		}
 
 		if retryCount == 0 && err != nil {
-			log.Errorf("Error applying ACL: %q", err.Error())
+			level.Error(logger).Log("msg", "error applying ACL:", "err", err.Error())
 
 			return false
 		}
@@ -1026,14 +1039,14 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bool {
 	var retryCount int
 
-	log.Infof("Bucket %q: Update Lifecycle configuration", bn)
+	level.Info(logger).Log("msg", "update lifecycle configuration", "bucket", bn)
 
 	lfcRules := []types.LifecycleRule{}
 	for _, lc := range b.LifecycleRules {
-		log.Debugf("LC rule: %+v", lc)
+		level.Debug(logger).Log("msg", "show lifecycle rule", "value", fmt.Sprintf("%+v", lc))
 
 		if (lc.NonCurrentDays >= 0) && (b.Versioning == "suspended") {
-			log.Warnf("Bucket %q: Lifecycle rule %q contains non-negative value for non-current version expiration, but bucket versioning is disabled!", bn, lc.Id)
+			level.Warn(logger).Log("msg", "lifecycle rule contains non-negative value for non-current version expiration, but bucket versioning is disabled!", "bucket", bn, "value", fmt.Sprintf("%+v", lc.Id))
 
 			lc.NonCurrentDays = -1
 		}
@@ -1072,7 +1085,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 	retryCount = retryNum
 
 	for retryCount > 0 {
-		log.Debugf("Bucket %q: Set Lifecycle configuration: %+v", bn, lfcRules)
+		level.Debug(logger).Log("msg", "set lifecycle configuration", "bucket", bn, fmt.Sprintf("%+v", lfcRules))
 
 		// Recreate/Delete lifecycle rules
 		// first: Delete old rules
@@ -1082,7 +1095,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 
 		out, err := uf.DeleteBucketLifecycle(context.TODO(), client, input)
 		if err != nil {
-			log.Errorf("Bucket %q: Error deleting old lifecycle configuration: %q\nOutput: %+v", bn, err.Error(), out)
+			level.Error(logger).Log("msg", "error deleting old lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", out), "err", err.Error())
 
 			return false
 		}
@@ -1096,14 +1109,14 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 				},
 			}
 
-			log.Debugf("Apply lifecycle configuration: %+v", *input)
+			level.Debug(logger).Log("msg", "apply lifecycle configuration", "vault", fmt.Sprintf("%+v", *input))
 
 			out, err := uf.PutBucketLifecycleConfiguration(context.TODO(), client, input)
 
 			retryCount--
 
 			if err != nil {
-				log.Debugf("Error applying Lifecycle Configuration: %q.\nOutput: %+v\nRetry attempts left: %v", err.Error(), out, retryCount)
+				level.Debug(logger).Log("msg", "error applying lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
 				time.Sleep(1 * time.Second)
 
@@ -1112,7 +1125,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 			}
 
 			if retryCount == 0 && err != nil {
-				log.Errorf("Error applying Lifecycle Configuration: %q", err.Error())
+				level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
 
 				return false
 
@@ -1130,20 +1143,20 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 	var retryCount int
 
-	log.Infof("Bucket %q: Update Bucket policy", bn)
+	level.Info(logger).Log("msg", "update bucket policy", "bucket", bn)
 
 	// Create Bucket policy JSON
-	log.Debugf("Bucket %q: Generate Bucket policy", bn)
+	level.Debug(logger).Log("msg", "generate bucket policy", "bucket", bn)
 
 	BucketPolicy, err := createBucketPolicy(&bn, &b)
 
 	if err != nil {
-		log.Errorf("Bucket %q: error marshaling Bucket policy to JSON: %q", bn, err)
+		level.Error(logger).Log("msg", "error marshaling Bucket policy to JSON", "bucket", bn, "err", err.Error())
 
 		return false
 	}
 
-	log.Debugf("Bucket %q: Bucket policy:\n%s", bn, BucketPolicy)
+	level.Debug(logger).Log("msg", "show bucket policy", "bucket", bn, "value", fmt.Sprintf("%+v", BucketPolicy))
 
 	retryCount = retryNum
 
@@ -1162,7 +1175,7 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 		retryCount--
 
 		if err != nil {
-			log.Debugf("Error applying Bucket policy: %q.\nOutput: %+v\nRetry attempts left: %v", err.Error(), out, retryCount)
+			level.Debug(logger).Log("msg", "error applying Bucket policy", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
 			time.Sleep(1 * time.Second)
 
@@ -1171,7 +1184,7 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 		}
 
 		if retryCount == 0 && err != nil {
-			log.Errorf("Error applying Lifecycle Configuration: %q", err.Error())
+			level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
 
 			return false
 
@@ -1183,7 +1196,7 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 }
 
 func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool {
-	log.Info("Apply new configuration on server")
+	level.Info(logger).Log("msg", "apply new configuration on server")
 
 	var retryCount int
 
@@ -1194,7 +1207,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 		bn = bn + bucketPostfix
 
 		if b.BucketType == "new" {
-			log.Infof("Create bucket %q", bn)
+			level.Info(logger).Log("msg", "create bucket", "bucket", bn)
 
 			retryCount = retryNum
 
@@ -1207,18 +1220,18 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 				retryCount--
 
 				if err != nil {
-					log.Debugf("Error creating bucket: %q.\nOutput: %+v\nRetry attempts left: %v", err.Error(), out, retryCount)
+					level.Debug(logger).Log("msg", "error creating bucket", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
 					time.Sleep(1 * time.Second)
 
 				} else {
-					log.Debugf("Bucket %q created", bn)
+					level.Debug(logger).Log("msg", "bucket created", "bucket", bn)
 
 					break
 				}
 
 				if retryCount == 0 && err != nil {
-					log.Errorf("Error creating bucket: %q", err.Error())
+					level.Error(logger).Log("msg", "error creating bucket", "err", err.Error())
 
 					return false
 				}
@@ -1229,11 +1242,11 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 
 		// Apply versioning if bucketType "new" or "updated"
 		if b.VersioningType == "updated" {
-			log.Infof("Bucket %q: Update versioning", bn)
+			level.Info(logger).Log("msg", "update versioning", "bucket", bn)
 
 			var status types.BucketVersioningStatus = types.BucketVersioningStatus(strcase.ToCamel(b.Versioning))
 
-			log.Debugf("Versioning status: %q", status)
+			level.Debug(logger).Log("msg", "versioning status updated", "bucket", bn, "value", fmt.Sprintf("%+v", status))
 
 			retryCount = retryNum
 
@@ -1245,14 +1258,14 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 					},
 				}
 
-				log.Debugf("Apply versioning: %+v", *input)
+				level.Debug(logger).Log("msg", "apply versioning", "bucket", bn, "value", *input)
 
 				out, err := uf.PutBucketVersioning(context.TODO(), client, input)
 
 				retryCount--
 
 				if err != nil {
-					log.Debugf("Error set versioning: %q.\nOutput: %+v\nRetry attempts left: %v", err.Error(), out, retryCount)
+					level.Debug(logger).Log("msg", "error set versioning", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
 					time.Sleep(1 * time.Second)
 
@@ -1261,7 +1274,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 				}
 
 				if retryCount == 0 && err != nil {
-					log.Errorf("Error set versioning: %q", err.Error())
+					level.Error(logger).Log("msg", "error set versioning", "bucket", bn, "err", err.Error())
 
 					return false
 				}
@@ -1286,7 +1299,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 			}
 
 		case "error":
-			log.Errorf("Bucket %q: ACL with type 'error' can't be applied! Skip.", bn)
+			level.Error(logger).Log("msg", "ACL with type 'error' can't be applied! Skip.", "bucket", bn)
 		}
 
 		// Apply Lifecycle Configuration
@@ -1304,7 +1317,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 			}
 
 		case "error":
-			log.Errorf("Bucket %q: Lifecycle configuration with type 'error' can't be applied! Skip.", bn)
+			level.Error(logger).Log("msg", "lifecycle configuration with type 'error' can't be applied! Skip.", "bucket", bn)
 		}
 
 	}
@@ -1312,23 +1325,23 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 	return true
 }
 
-func configureS3(confPath string, credsPath string, bucketPostfix string) int {
-	log.Infof("Load buckets configuration from %q", confPath)
+func configureS3Server(confPath string, credsPath string, bucketPostfix string) int {
+	level.Info(logger).Log("msg", "load buckets configuration from file", "file", confPath)
 
 	localCfg, loadOk := loadS3ConfigFile(&confPath)
 
 	if !loadOk {
-		log.Errorf("Error loading file %q", localCfg)
+		level.Error(logger).Log("msg", "error loading file", "file", fmt.Sprintf("%+v", localCfg))
 
 		return 1
 	}
 
-	log.Debugf("Loaded local configuration: %+v", localCfg)
-	log.Info("Load buckets configuration from server")
+	level.Debug(logger).Log("msg", "loaded local configuration", "file", fmt.Sprintf("%+v", localCfg))
+	level.Info(logger).Log("msg", "load buckets configuration from server")
 
 	srvCfg := getS3Config(&credsPath, &bucketPostfix)
 
-	log.Debugf("Loaded server configuration: %+v", srvCfg)
+	level.Debug(logger).Log("msg", "loaded server configuration", fmt.Sprintf("%+v", srvCfg))
 
 	newSrvConfig, cfgUpdated := compareConfigs(localCfg, srvCfg)
 
@@ -1338,19 +1351,19 @@ func configureS3(confPath string, credsPath string, bucketPostfix string) int {
 		err := yaml.Unmarshal(yaml_model, newSrvConfig)
 
 		if err != nil {
-			log.Errorf("Test new configuration was failed: %q", err.Error())
-			log.Debugf("Broken configuration: %+v", newSrvConfig)
+			level.Error(logger).Log("msg", "test new configuration was failed", "err", err.Error())
+			level.Debug(logger).Log("msg", "broken configuration", "value", fmt.Sprintf("%+v", newSrvConfig))
 
 			return 1
 		}
 
-		log.Debugf("New configuration: %+v", newSrvConfig)
+		level.Debug(logger).Log("msg", "show new configuration", "value", fmt.Sprintf("%+v", newSrvConfig))
 
 		if !applyS3Config(&newSrvConfig, &credsPath, bucketPostfix) {
 			return 1
 		}
 	} else {
-		log.Info("Server's configuration already up to date")
+		level.Info(logger).Log("msg", "server's configuration already up to date")
 
 		return 200
 	}
@@ -1361,15 +1374,20 @@ func configureS3(confPath string, credsPath string, bucketPostfix string) int {
 func init() {
 	app.Version(printVersion())
 	kingpin.MustParse(app.Parse(os.Args[1:]))
-	customFormatter := new(log.TextFormatter)
-	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
-	customFormatter.FullTimestamp = true
-	//customFormatter.DisableLevelTruncation = true
-	log.SetFormatter(customFormatter)
+
+	logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
 
 	if *debug {
-		log.SetLevel(log.DebugLevel)
+		logger = level.NewFilter(logger, level.AllowDebug())
+	} else {
+		logger = level.NewFilter(logger, level.AllowInfo())
 	}
+
+	timestampFormat := log.TimestampFormat(
+		func() time.Time { return time.Now().UTC() },
+		"2006-01-02T15:04:05.000Z07:00",
+	)
+	logger = log.With(logger, "timestamp", timestampFormat, "caller", log.DefaultCaller)
 }
 
 func main() {
@@ -1377,36 +1395,36 @@ func main() {
 
 	switch kingpin.MustParse(app.Parse(os.Args[1:])) {
 	case appFlags.FullCommand():
-		log.Debugf("Command: %q", appFlags.FullCommand())
-		log.Debugf("Flag --app-config:     %q", *appAppConfig)
-		log.Debugf("Flag --ceph-config:    %q", *appS3Config)
+		level.Debug(logger).Log("command", appFlags.FullCommand())
+		level.Debug(logger).Log("flag", "--app-config", "value", *appAppConfig)
+		level.Debug(logger).Log("flag", "--ceph-config", "value", *appS3Config)
 
 		*appAppConfig, _ = filepath.Abs(*appAppConfig)
 		*appS3Config, _ = filepath.Abs(*appS3Config)
 		exitCode = updateConfigFromApp(*appAppConfig, *appS3Config)
 	case createFlags.FullCommand():
-		log.Debugf("Command: %q", createFlags.FullCommand())
-		log.Debugf("Flag --ceph-config:    %q", *createS3Config)
-		log.Debugf("Flag --credentials:    %q", *createCredentials)
-		log.Debugf("Flag --bucket-postfix: %q", *createBucketPostfix)
+		level.Debug(logger).Log("command", createFlags.FullCommand())
+		level.Debug(logger).Log("flag", "--ceph-config", "value", *createS3Config)
+		level.Debug(logger).Log("flag", "--credentials", "value", *createCredentials)
+		level.Debug(logger).Log("flag", "--bucket-postfix", "value", *createBucketPostfix)
 
 		*createS3Config, _ = filepath.Abs(*createS3Config)
 		*createCredentials, _ = filepath.Abs(*createCredentials)
 		exitCode = createS3ConfigFile(*createS3Config, *createCredentials, *createBucketPostfix)
 	case cfgFlags.FullCommand():
-		log.Debugf("Command: %q", cfgFlags.FullCommand())
-		log.Debugf("Flag --ceph-config:    %q", *cfgS3Config)
-		log.Debugf("Flag --credentials:    %q", *cfgCredentials)
-		log.Debugf("Flag --bucket-postfix: %q", *cfgBucketPostfix)
+		level.Debug(logger).Log("command", cfgFlags.FullCommand())
+		level.Debug(logger).Log("flag", "--ceph-config", "value", *cfgS3Config)
+		level.Debug(logger).Log("flag", "--credentials", "value", *cfgCredentials)
+		level.Debug(logger).Log("flag", "--bucket-postfix", "value", *cfgBucketPostfix)
 
 		*cfgS3Config, _ = filepath.Abs(*cfgS3Config)
 		*cfgCredentials, _ = filepath.Abs(*cfgCredentials)
-		exitCode = configureS3(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
+		exitCode = configureS3Server(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 
 		if exitCode == 0 {
-			log.Infof("Server configuration updated successfully")
+			level.Info(logger).Log("msg", "server configuration updated successfully")
+			level.Info(logger).Log("msg", "update local config from server")
 
-			log.Info("Update local config from server")
 			exitCode = createS3ConfigFile(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 		} else if exitCode == 200 {
 			exitCode = 0
@@ -1414,10 +1432,12 @@ func main() {
 	}
 
 	if exitCode > 0 {
-		log.Fatalf("Exit code: %d", exitCode)
+		level.Error(logger).Log("msg", "exit", "code", exitCode)
+
+		os.Exit(1)
 	}
 
-	log.Debugf("Exit code: %d", exitCode)
+	level.Debug(logger).Log("msg", "exit", "code", exitCode)
 
 	os.Exit(0)
 
