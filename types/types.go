@@ -50,9 +50,8 @@ type Bucket struct {
 type Buckets map[string]Bucket
 
 func (conf *Config) SetDefaults() {
-	if conf.EndpointUrl == "" {
-		conf.EndpointUrl = "127.0.0.1:8880"
-	}
+	conf.EndpointUrl = "127.0.0.1:8880"
+	conf.DisableSSL = false
 }
 
 func (b Buckets) HasKey(k string) bool {
