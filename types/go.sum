@@ -6,8 +6,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.3.0 h1:VNJ5NLBteV
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.3.0/go.mod h1:R1KK+vY8AfalhG1AOu5e35pOD2SdoPKQCFLTvnxiohk=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.7.0 h1:HWsM0YQWX76V6MOp07YuTYacm8k7h69ObJuw7Nck+og=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.7.0/go.mod h1:LKb3cKNQIMh+itGnEpKGcnL/6OIjPZqrtYah1w5f+3o=
-github.com/aws/aws-sdk-go-v2/service/s3 v1.15.0 h1:nPLfLPfglacc29Y949sDxpr3X/blaY40s3B85WT2yZU=
-github.com/aws/aws-sdk-go-v2/service/s3 v1.15.0/go.mod h1:Iv2aJVtVSm/D22rFoX99cLG4q4uB7tppuCsulGe98k4=
+github.com/aws/aws-sdk-go-v2/service/s3 v1.15.1 h1:fRuWyXBEH2odSOE21Oj85WFxAqXCjwMPGOMyFeaFrAE=
+github.com/aws/aws-sdk-go-v2/service/s3 v1.15.1/go.mod h1:Iv2aJVtVSm/D22rFoX99cLG4q4uB7tppuCsulGe98k4=
 github.com/aws/smithy-go v1.8.0 h1:AEwwwXQZtUwP5Mz506FeXXrKBe0jA8gVM+1gEcSRooc=
 github.com/aws/smithy-go v1.8.0/go.mod h1:SObp3lf9smib00L/v3U2eAKG8FyQ7iLrJnQiAmR5n+E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
