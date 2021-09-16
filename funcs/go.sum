@@ -1,5 +1,5 @@
-github.com/ashokhin/ceph-buckets/types v0.0.0-20210910055128-731cc1e6f17c h1:pu6dPyzj0AsQjmwGXbhywlNnX8Rc2IHL3fdlip19bk0=
-github.com/ashokhin/ceph-buckets/types v0.0.0-20210910055128-731cc1e6f17c/go.mod h1:96JYmKP1+Qq92AYPwgGIYYmhmoqaiw7Rnkz7/u0HUv8=
+github.com/ashokhin/ceph-buckets/types v0.0.0-20210916131554-8a74da2a7553 h1:OZHJRSALNrCMIuOBJbFrc0S+1hRKfoopqMn/uPj3Jmc=
+github.com/ashokhin/ceph-buckets/types v0.0.0-20210916131554-8a74da2a7553/go.mod h1:N70i4OcKcYF+GwFEjgYZETNW9WIg85PlqyUrR3t+xLw=
 github.com/aws/aws-sdk-go-v2 v1.9.0 h1:+S+dSqQCN3MSU5vJRu1HqHrq00cJn6heIMU7X9hcsoo=
 github.com/aws/aws-sdk-go-v2 v1.9.0/go.mod h1:cK/D0BBs0b/oWPIcX/Z/obahJK1TT7IPVjy53i/mX/4=
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.3.0 h1:gceOysEWNNwLd6cki65IMBZ4WAM0MwgBQq2n7kejoT8=
@@ -8,8 +8,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.3.0 h1:VNJ5NLBteV
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.3.0/go.mod h1:R1KK+vY8AfalhG1AOu5e35pOD2SdoPKQCFLTvnxiohk=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.7.0 h1:HWsM0YQWX76V6MOp07YuTYacm8k7h69ObJuw7Nck+og=
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.7.0/go.mod h1:LKb3cKNQIMh+itGnEpKGcnL/6OIjPZqrtYah1w5f+3o=
-github.com/aws/aws-sdk-go-v2/service/s3 v1.15.0 h1:nPLfLPfglacc29Y949sDxpr3X/blaY40s3B85WT2yZU=
-github.com/aws/aws-sdk-go-v2/service/s3 v1.15.0/go.mod h1:Iv2aJVtVSm/D22rFoX99cLG4q4uB7tppuCsulGe98k4=
+github.com/aws/aws-sdk-go-v2/service/s3 v1.15.1 h1:fRuWyXBEH2odSOE21Oj85WFxAqXCjwMPGOMyFeaFrAE=
+github.com/aws/aws-sdk-go-v2/service/s3 v1.15.1/go.mod h1:Iv2aJVtVSm/D22rFoX99cLG4q4uB7tppuCsulGe98k4=
 github.com/aws/smithy-go v1.8.0 h1:AEwwwXQZtUwP5Mz506FeXXrKBe0jA8gVM+1gEcSRooc=
 github.com/aws/smithy-go v1.8.0/go.mod h1:SObp3lf9smib00L/v3U2eAKG8FyQ7iLrJnQiAmR5n+E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

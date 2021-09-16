@@ -3,8 +3,8 @@ module github.com/ashokhin/ceph-buckets/funcs
 go 1.17
 
 require (
-	github.com/ashokhin/ceph-buckets/types v0.0.0-20210910055128-731cc1e6f17c
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.15.0
+	github.com/ashokhin/ceph-buckets/types v0.0.0-20210916131554-8a74da2a7553
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.15.1
 )
 
 require (
