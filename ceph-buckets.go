@@ -813,6 +813,7 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 
 func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 	var (
+		err error
 		ps  ut.BucketPolicyStatement
 		psa []ut.BucketPolicyStatement
 		j   []byte
@@ -930,13 +931,17 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 	}
 
+	if len(psa) == 0 {
+		return "", err
+	}
+
 	bp := ut.BucketPolicy{
 		Version:   BucketPolicyVersion,
 		Id:        fmt.Sprintf("Policy-%s-%v", *bn, time.Now().UnixNano()),
 		Statement: psa,
 	}
 
-	j, err := json.MarshalIndent(bp, "", "  ")
+	j, err = json.MarshalIndent(bp, "", "  ")
 
 	return string(j), err
 
