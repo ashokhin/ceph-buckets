@@ -6,7 +6,7 @@ require (
 	github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751 // indirect
 	github.com/alecthomas/units v0.0.0-20210208195552-ff826a37aa15 // indirect
 	github.com/ashokhin/ceph-buckets/funcs v0.0.0-20210910055508-809bbd7e4670
-	github.com/ashokhin/ceph-buckets/types v0.0.0-20210915142513-83a7f6b2c4dd
+	github.com/ashokhin/ceph-buckets/types v0.0.0-20210916075634-e3cd686e585a
 	github.com/aws/aws-sdk-go-v2 v1.9.0
 	github.com/aws/aws-sdk-go-v2/config v1.8.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.4.0

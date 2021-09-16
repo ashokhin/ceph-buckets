@@ -7,6 +7,8 @@ github.com/ashokhin/ceph-buckets/funcs v0.0.0-20210910055508-809bbd7e4670/go.mod
 github.com/ashokhin/ceph-buckets/types v0.0.0-20210910055128-731cc1e6f17c/go.mod h1:96JYmKP1+Qq92AYPwgGIYYmhmoqaiw7Rnkz7/u0HUv8=
 github.com/ashokhin/ceph-buckets/types v0.0.0-20210915142513-83a7f6b2c4dd h1:JBy45dkkFXNRaMh0H6ViQAzsvODeu4y+xhfND1ZPyQk=
 github.com/ashokhin/ceph-buckets/types v0.0.0-20210915142513-83a7f6b2c4dd/go.mod h1:96JYmKP1+Qq92AYPwgGIYYmhmoqaiw7Rnkz7/u0HUv8=
+github.com/ashokhin/ceph-buckets/types v0.0.0-20210916075634-e3cd686e585a h1:UCWUJVEpgxeuTqPizi6O03RqWxtlHNtCX57AxNNTJbE=
+github.com/ashokhin/ceph-buckets/types v0.0.0-20210916075634-e3cd686e585a/go.mod h1:96JYmKP1+Qq92AYPwgGIYYmhmoqaiw7Rnkz7/u0HUv8=
 github.com/aws/aws-sdk-go-v2 v1.9.0 h1:+S+dSqQCN3MSU5vJRu1HqHrq00cJn6heIMU7X9hcsoo=
 github.com/aws/aws-sdk-go-v2 v1.9.0/go.mod h1:cK/D0BBs0b/oWPIcX/Z/obahJK1TT7IPVjy53i/mX/4=
 github.com/aws/aws-sdk-go-v2/config v1.8.0 h1:O8EMFBOl6tue5gdJJV6U3Ikyl3lqgx6WrulCYrcy2SQ=
