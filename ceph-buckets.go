@@ -315,13 +315,13 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 
 		if len(*bucketPostfix) > 0 {
 			if re.MatchString(*bucket.Name) {
-				level.Debug(logger).Log("msg", "was match pattern. Rename", "bucket", *bucket.Name, "regexp", matchPattern)
+				level.Debug(logger).Log("msg", "bucket name was match pattern. Rename", "bucket", *bucket.Name, "regexp", matchPattern)
 
-				//Create name w/o postfix
+				//Create name without postfix
 				bn = re.ReplaceAllString(*bucket.Name, "")
-				level.Debug(logger).Log("msg", "new name", "value", bn)
+				level.Debug(logger).Log("msg", "new bucket name", "value", bn)
 			} else {
-				level.Warn(logger).Log("msg", "name doesn't match pattern", "bucket", *bucket.Name, "regexp", matchPattern)
+				level.Warn(logger).Log("msg", "bucket name doesn't match pattern", "bucket", *bucket.Name, "regexp", matchPattern)
 
 				bn = *bucket.Name
 			}
@@ -811,134 +811,89 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 	return newCfg, needUpdate
 }
 
+func fillBucketPolicy(bn *string, b *ut.Bucket, op string, grants []string, bpsa []ut.BucketPolicyStatement) []ut.BucketPolicyStatement {
+	var (
+		bps       ut.BucketPolicyStatement
+		pta       []string
+		polAction []string
+		fullName  string
+	)
+
+	switch op {
+	case "full":
+		polAction = []string{
+			"s3:*",
+		}
+		fullName = "FULL_CONTROL"
+	case "read":
+		polAction = BucketPolicyReadAction
+		fullName = "READ"
+	case "write":
+		polAction = BucketPolicyWriteAction
+		fullName = "WRITE"
+	}
+
+	for _, u := range grants {
+		switch s := u; {
+		case s == b.Acl.Owner.Id:
+			level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
+		case strings.Contains(s, ":"):
+			pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
+		default:
+			pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
+
+		}
+
+	}
+
+	bps = ut.BucketPolicyStatement{
+		Sid:    fmt.Sprintf("%s-%s-%v", *bn, op, time.Now().UnixNano()),
+		Action: polAction,
+		Effect: "Allow",
+		Resource: []string{
+			fmt.Sprintf("arn:aws:s3:::%s", *bn),
+		},
+		Principal: ut.BucketPolicyPricipal{
+			PrincipalType: pta,
+		},
+	}
+
+	if len(bps.Principal.PrincipalType) > 0 {
+		bpsa = append(bpsa, bps)
+	} else {
+		level.Debug(logger).Log("msg", "bucket policy statement didn't have principals. Skip. Show bucket policy template", "policy", fullName, "bucket", *bn, "value", fmt.Sprintf("%+v", bps))
+	}
+
+	return bpsa
+}
+
 func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 	var (
-		err error
-		ps  ut.BucketPolicyStatement
-		psa []ut.BucketPolicyStatement
-		j   []byte
+		err  error
+		bpsa []ut.BucketPolicyStatement
+		j    []byte
 	)
 
 	if len(b.Acl.Grants.FullControl) > 0 {
-		var pta []string
-
-		for _, u := range b.Acl.Grants.FullControl {
-
-			switch s := u; {
-			case s == b.Acl.Owner.Id:
-				level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
-			case strings.Contains(s, ":"):
-				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
-			default:
-				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
-
-			}
-
-		}
-
-		ps = ut.BucketPolicyStatement{
-			Sid: fmt.Sprintf("%s-full-%v", *bn, time.Now().UnixNano()),
-			Action: []string{
-				"s3:*",
-			},
-			Effect: "Allow",
-			Resource: []string{
-				fmt.Sprintf("arn:aws:s3:::%s", *bn),
-			},
-			Principal: ut.BucketPolicyPricipal{
-				PrincipalType: pta,
-			},
-		}
-
-		if len(ps.Principal.PrincipalType) > 0 {
-			psa = append(psa, ps)
-		} else {
-			level.Debug(logger).Log("msg", "'FULL_CONTROL' bucket policy statement didn't have principals. Skip. Show bucket policy template", "bucket", *bn, "value", fmt.Sprintf("%+v", ps))
-		}
-
+		bpsa = fillBucketPolicy(bn, b, "full", b.Acl.Grants.FullControl, bpsa)
 	}
 
 	if len(b.Acl.Grants.Read) > 0 {
-		var pta []string
-
-		for _, u := range b.Acl.Grants.Read {
-
-			switch s := u; {
-			case s == b.Acl.Owner.Id:
-				level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
-			case strings.Contains(s, ":"):
-				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
-			default:
-				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
-			}
-
-		}
-
-		ps = ut.BucketPolicyStatement{
-			Sid:    fmt.Sprintf("%s-read-%v", *bn, time.Now().UnixNano()),
-			Action: BucketPolicyReadAction,
-			Effect: "Allow",
-			Resource: []string{
-				fmt.Sprintf("arn:aws:s3:::%s", *bn),
-			},
-			Principal: ut.BucketPolicyPricipal{
-				PrincipalType: pta,
-			},
-		}
-
-		if len(ps.Principal.PrincipalType) > 0 {
-			psa = append(psa, ps)
-		} else {
-			level.Debug(logger).Log("msg", "'READ' bucket policy statement didn't have principals. Skip. Bucket policy template", "bucket", *bn, "value", fmt.Sprintf("%+v", ps))
-		}
-
+		bpsa = fillBucketPolicy(bn, b, "read", b.Acl.Grants.Read, bpsa)
 	}
 
 	if len(b.Acl.Grants.Write) > 0 {
-		var pta []string
-
-		for _, u := range b.Acl.Grants.Write {
-
-			switch s := u; {
-			case s == b.Acl.Owner.Id:
-				level.Debug(logger).Log("msg", "skip bucket owner", "value", s)
-			case strings.Contains(s, ":"):
-				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
-			default:
-				pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
-
-			}
-
-		}
-
-		ps = ut.BucketPolicyStatement{
-			Sid:    fmt.Sprintf("%s-write-%v", *bn, time.Now().UnixNano()),
-			Action: BucketPolicyWriteAction,
-			Effect: "Allow",
-			Resource: []string{
-				fmt.Sprintf("arn:aws:s3:::%s", *bn),
-			},
-			Principal: ut.BucketPolicyPricipal{
-				PrincipalType: pta,
-			},
-		}
-
-		if len(ps.Principal.PrincipalType) > 0 {
-			psa = append(psa, ps)
-		} else {
-			level.Debug(logger).Log("msg", "'WRITE' bucket policy statement didn't have principals. Skip. Bucket policy template", "bucket", *bn, "value", fmt.Sprintf("%+v", ps))
-		}
-
+		bpsa = fillBucketPolicy(bn, b, "write", b.Acl.Grants.Write, bpsa)
 	}
 
-	if len(psa) == 0 {
+	if len(bpsa) == 0 {
 		return "", err
 	}
 
 	bp := ut.BucketPolicy{
 		Version:   BucketPolicyVersion,
 		Id:        fmt.Sprintf("Policy-%s-%v", *bn, time.Now().UnixNano()),
-		Statement: psa,
+		Statement: bpsa,
 	}
 
 	j, err = json.MarshalIndent(bp, "", "  ")
