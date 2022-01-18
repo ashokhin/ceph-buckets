@@ -568,6 +568,7 @@ func loadS3ConfigFile(fs *string) (ut.Buckets, bool) {
 
 func updateConfigFromApp(appPath string, confPath string) int {
 	var appBuckets []string
+	var b ut.Bucket
 
 	needUpdate := false
 
@@ -609,8 +610,6 @@ func updateConfigFromApp(appPath string, confPath string) int {
 			level.Debug(logger).Log("msg", "buckets loaded")
 
 			for _, confBucket := range confBuckets {
-				fmt.Printf("\t- %+v\n", confBucket)
-
 				level.Debug(logger).Log("msg", "bucket loaded", "bucket", confBucket)
 			}
 
@@ -629,8 +628,6 @@ func updateConfigFromApp(appPath string, confPath string) int {
 
 			continue
 		}
-
-		var b ut.Bucket
 
 		level.Info(logger).Log("msg", "bucket is new. Add in file", "bucket", appBucket, "file", confPath)
 
@@ -976,18 +973,17 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		retryCount--
 
 		if err != nil {
-			level.Debug(logger).Log("msg", "error applying ACL", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+			if retryCount > 0 {
+				level.Debug(logger).Log("msg", "error applying ACL", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
-			time.Sleep(1 * time.Second)
+				time.Sleep(1 * time.Second)
+			} else {
+				level.Error(logger).Log("msg", "error applying ACL:", "err", err.Error())
 
+				return false
+			}
 		} else {
 			break
-		}
-
-		if retryCount == 0 && err != nil {
-			level.Error(logger).Log("msg", "error applying ACL:", "err", err.Error())
-
-			return false
 		}
 
 	}
@@ -1049,47 +1045,44 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 
 		// Recreate/Delete lifecycle rules
 		// first: Delete old rules
-		input := &s3.DeleteBucketLifecycleInput{
+		delLfc := &s3.DeleteBucketLifecycleInput{
 			Bucket: aws.String(bn),
 		}
 
-		out, err := uf.DeleteBucketLifecycle(context.TODO(), client, input)
+		delLfcOut, err := uf.DeleteBucketLifecycle(context.TODO(), client, delLfc)
 		if err != nil {
-			level.Error(logger).Log("msg", "error deleting old lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", out), "err", err.Error())
+			level.Error(logger).Log("msg", "error deleting old lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", delLfcOut), "err", err.Error())
 
 			return false
 		}
 
-		if len(lfcRules) > 0 {
-			// Create new versions of rules
-			input := &s3.PutBucketLifecycleConfigurationInput{
-				Bucket: aws.String(bn),
-				LifecycleConfiguration: &types.BucketLifecycleConfiguration{
-					Rules: lfcRules,
-				},
-			}
+		if len(lfcRules) == 0 {
+			break
+		}
+		// Create new versions of rules
+		putLfc := &s3.PutBucketLifecycleConfigurationInput{
+			Bucket: aws.String(bn),
+			LifecycleConfiguration: &types.BucketLifecycleConfiguration{
+				Rules: lfcRules,
+			},
+		}
 
-			level.Debug(logger).Log("msg", "apply lifecycle configuration", "vault", fmt.Sprintf("%+v", *input))
+		level.Debug(logger).Log("msg", "apply lifecycle configuration", "vault", fmt.Sprintf("%+v", *putLfc))
 
-			out, err := uf.PutBucketLifecycleConfiguration(context.TODO(), client, input)
+		putLfcOut, err := uf.PutBucketLifecycleConfiguration(context.TODO(), client, putLfc)
 
-			retryCount--
+		retryCount--
 
-			if err != nil {
-				level.Debug(logger).Log("msg", "error applying lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
-
-				time.Sleep(1 * time.Second)
-
+		if err != nil {
+			if retryCount > 0 {
+				level.Debug(logger).Log("msg", "error applying lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", putLfcOut), "retry_attempts_left", retryCount, "err", err.Error())
 			} else {
-				break
-			}
-
-			if retryCount == 0 && err != nil {
 				level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
 
 				return false
-
 			}
+
+			time.Sleep(1 * time.Second)
 
 		} else {
 			break
@@ -1135,19 +1128,18 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 		retryCount--
 
 		if err != nil {
-			level.Debug(logger).Log("msg", "error applying Bucket policy", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+			if retryCount > 0 {
+				level.Debug(logger).Log("msg", "error applying Bucket policy", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
-			time.Sleep(1 * time.Second)
+				time.Sleep(1 * time.Second)
+			} else {
+				level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
+
+				return false
+			}
 
 		} else {
 			break
-		}
-
-		if retryCount == 0 && err != nil {
-			level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
-
-			return false
-
 		}
 
 	}
@@ -1180,20 +1172,20 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 				retryCount--
 
 				if err != nil {
-					level.Debug(logger).Log("msg", "error creating bucket", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+					if retryCount > 0 {
+						level.Debug(logger).Log("msg", "error creating bucket", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
-					time.Sleep(1 * time.Second)
+						time.Sleep(1 * time.Second)
+					} else {
+						level.Error(logger).Log("msg", "error creating bucket", "err", err.Error())
+
+						return false
+					}
 
 				} else {
 					level.Debug(logger).Log("msg", "bucket created", "bucket", bn)
 
 					break
-				}
-
-				if retryCount == 0 && err != nil {
-					level.Error(logger).Log("msg", "error creating bucket", "err", err.Error())
-
-					return false
 				}
 
 			}
@@ -1225,18 +1217,18 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 				retryCount--
 
 				if err != nil {
-					level.Debug(logger).Log("msg", "error set versioning", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+					if retryCount > 0 {
+						level.Debug(logger).Log("msg", "error set versioning", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
-					time.Sleep(1 * time.Second)
+						time.Sleep(1 * time.Second)
+					} else {
+						level.Error(logger).Log("msg", "error set versioning", "bucket", bn, "err", err.Error())
+
+						return false
+					}
 
 				} else {
 					break
-				}
-
-				if retryCount == 0 && err != nil {
-					level.Error(logger).Log("msg", "error set versioning", "bucket", bn, "err", err.Error())
-
-					return false
 				}
 
 			}
