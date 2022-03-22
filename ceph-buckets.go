@@ -532,7 +532,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 	return buckets
 }
 
-func createS3ConfigFile(confPath string, credsPath string, bucketPostfix string) int {
+func createS3ConfigFile(confPath string, credsPath string, bucketPostfix string) error {
 	buckets := getS3Config(&credsPath, &bucketPostfix)
 	level.Info(logger).Log("msg", "write config to file", "file", confPath)
 
@@ -541,18 +541,21 @@ func createS3ConfigFile(confPath string, credsPath string, bucketPostfix string)
 	if err != nil {
 		level.Error(logger).Log("msg", "error writing file", "file", confPath, "err", err.Error())
 
-		return 1
+		return err
 	}
 
-	return 0
+	return nil
 }
 
-func loadS3ConfigFile(fs *string) (ut.Buckets, bool) {
+func loadS3ConfigFile(fs *string) (ut.Buckets, error) {
 	cfg := make(ut.Buckets)
 	f, readOk := readFile(fs)
 
 	if !readOk {
-		level.Warn(logger).Log("msg", "fileisn't readed", "file", *fs)
+		err := fmt.Errorf("file %s isn't readed", *fs)
+		level.Error(logger).Log("msg", "file isn't readed", "file", *fs)
+
+		return cfg, err
 	}
 
 	err := yaml.Unmarshal(f, &cfg)
@@ -560,13 +563,13 @@ func loadS3ConfigFile(fs *string) (ut.Buckets, bool) {
 	if err != nil {
 		level.Error(logger).Log("msg", "error unmarshaling YAML-config", "err", err.Error())
 
-		os.Exit(2)
+		os.Exit(1)
 	}
 
-	return cfg, readOk
+	return cfg, nil
 }
 
-func updateConfigFromApp(appPath string, confPath string) int {
+func updateConfigFromApp(appPath string, confPath string) error {
 	var appBuckets []string
 	var b ut.Bucket
 
@@ -579,7 +582,7 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	if err != nil {
 		level.Error(logger).Log("msg", "error openning file", "file", appPath, "err", err.Error())
 
-		return 1
+		return err
 	}
 
 	defer fc.Close()
@@ -602,9 +605,9 @@ func updateConfigFromApp(appPath string, confPath string) int {
 	level.Debug(logger).Log("msg", "show application buckets", "value", fmt.Sprintf("%+v", appBuckets))
 	level.Info(logger).Log("msg", "load buckets configuration from file", "file", confPath)
 
-	confBuckets, loadOk := loadS3ConfigFile(&confPath)
+	confBuckets, err := loadS3ConfigFile(&confPath)
 
-	if loadOk {
+	if err == nil {
 
 		if *debug {
 			level.Debug(logger).Log("msg", "buckets loaded")
@@ -647,14 +650,14 @@ func updateConfigFromApp(appPath string, confPath string) int {
 		if err != nil {
 			level.Error(logger).Log("msg", "error writing file", "file", confPath, "err", err.Error())
 
-			return 1
+			return err
 		}
 
 	} else {
 		level.Info(logger).Log("msg", "configuration in file already is up to date", "file", confPath)
 	}
 
-	return 0
+	return nil
 }
 
 /*
@@ -902,8 +905,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 /*
 	Bucket ACL not supported yet in Ceph RGW S3
 */
-/* func applyS3Acl(bn string, b ut.Bucket, client *s3.Client) bool {
-
+/* func applyS3Acl(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
 
 	level.Info(logger).Log("msg", "update ACL", "bucket", bn)
@@ -919,7 +921,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 	if err != nil {
 		level.Error(logger).Log("msg", "error retriving ACL", "err", err.Error())
 
-		return false
+		return err
 	}
 
 	owner := *ba.Owner.DisplayName
@@ -980,7 +982,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 			} else {
 				level.Error(logger).Log("msg", "error applying ACL:", "err", err.Error())
 
-				return false
+				return err
 			}
 		} else {
 			break
@@ -988,11 +990,11 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 	}
 
-	return true
+	return nil
 
 } */
 
-func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bool {
+func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
 
 	level.Info(logger).Log("msg", "update lifecycle configuration", "bucket", bn)
@@ -1053,7 +1055,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 		if err != nil {
 			level.Error(logger).Log("msg", "error deleting old lifecycle configuration", "bucket", bn, "output", fmt.Sprintf("%+v", delLfcOut), "err", err.Error())
 
-			return false
+			return err
 		}
 
 		if len(lfcRules) == 0 {
@@ -1079,7 +1081,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 			} else {
 				level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
 
-				return false
+				return err
 			}
 
 			time.Sleep(1 * time.Second)
@@ -1090,10 +1092,10 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) bo
 
 	}
 
-	return true
+	return nil
 }
 
-func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
+func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
 
 	level.Info(logger).Log("msg", "update bucket policy", "bucket", bn)
@@ -1106,7 +1108,7 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 	if err != nil {
 		level.Error(logger).Log("msg", "error marshaling Bucket policy to JSON", "bucket", bn, "err", err.Error())
 
-		return false
+		return err
 	}
 
 	level.Debug(logger).Log("msg", "show bucket policy", "bucket", bn, "value", fmt.Sprintf("%+v", BucketPolicy))
@@ -1135,7 +1137,7 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 			} else {
 				level.Error(logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
 
-				return false
+				return err
 			}
 
 		} else {
@@ -1144,10 +1146,10 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) bool {
 
 	}
 
-	return true
+	return nil
 }
 
-func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool {
+func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error {
 	level.Info(logger).Log("msg", "apply new configuration on server")
 
 	var retryCount int
@@ -1179,7 +1181,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 					} else {
 						level.Error(logger).Log("msg", "error creating bucket", "err", err.Error())
 
-						return false
+						return err
 					}
 
 				} else {
@@ -1224,7 +1226,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 					} else {
 						level.Error(logger).Log("msg", "error set versioning", "bucket", bn, "err", err.Error())
 
-						return false
+						return err
 					}
 
 				} else {
@@ -1242,50 +1244,56 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) bool 
 				Bucket ACL not supported yet in Ceph RGW S3
 			*/
 			/*
-				if !applyS3Acl(bn, b, client) {
-					return false
+				err := applyS3Acl(bn, b, client)
+
+				if err != nil {
+					return err
 				}
 			*/
-			if !applyS3BucketPolicy(bn, b, client) {
-				return false
+			err := applyS3BucketPolicy(bn, b, client)
+
+			if err != nil {
+				return err
 			}
 
 		case "error":
-			level.Error(logger).Log("msg", "ACL with type 'error' can't be applied! Skip.", "bucket", bn)
+			level.Warn(logger).Log("msg", "ACL with type 'error' can't be applied! Skip.", "bucket", bn)
 		}
 
 		// Apply Lifecycle Configuration
 		switch LfcType := b.LifecycleType; LfcType {
 		case "new":
+			err := applyS3LifecycleConfiguration(bn, b, client)
 
-			if !applyS3LifecycleConfiguration(bn, b, client) {
-				return false
+			if err != nil {
+				return err
 			}
 
 		case "updated":
+			err := applyS3LifecycleConfiguration(bn, b, client)
 
-			if !applyS3LifecycleConfiguration(bn, b, client) {
-				return false
+			if err != nil {
+				return err
 			}
 
 		case "error":
-			level.Error(logger).Log("msg", "lifecycle configuration with type 'error' can't be applied! Skip.", "bucket", bn)
+			level.Warn(logger).Log("msg", "lifecycle configuration with type 'error' can't be applied! Skip.", "bucket", bn)
 		}
 
 	}
 
-	return true
+	return nil
 }
 
-func configureS3Server(confPath string, credsPath string, bucketPostfix string) int {
+func configureS3Server(confPath string, credsPath string, bucketPostfix string) (bool, error) {
 	level.Info(logger).Log("msg", "load buckets configuration from file", "file", confPath)
 
-	localCfg, loadOk := loadS3ConfigFile(&confPath)
+	localCfg, err := loadS3ConfigFile(&confPath)
 
-	if !loadOk {
+	if err != nil {
 		level.Error(logger).Log("msg", "error loading file", "file", fmt.Sprintf("%+v", localCfg))
 
-		return 1
+		return false, err
 	}
 
 	level.Debug(logger).Log("msg", "loaded local configuration", "file", fmt.Sprintf("%+v", localCfg))
@@ -1306,21 +1314,23 @@ func configureS3Server(confPath string, credsPath string, bucketPostfix string) 
 			level.Error(logger).Log("msg", "test new configuration was failed", "err", err.Error())
 			level.Debug(logger).Log("msg", "broken configuration", "value", fmt.Sprintf("%+v", newSrvConfig))
 
-			return 1
+			return false, err
 		}
 
 		level.Debug(logger).Log("msg", "show new configuration", "value", fmt.Sprintf("%+v", newSrvConfig))
 
-		if !applyS3Config(&newSrvConfig, &credsPath, bucketPostfix) {
-			return 1
+		err = applyS3Config(&newSrvConfig, &credsPath, bucketPostfix)
+
+		if err != nil {
+			return false, err
 		}
 	} else {
 		level.Info(logger).Log("msg", "server's configuration already up to date")
 
-		return 200
+		return true, nil
 	}
 
-	return 0
+	return true, nil
 }
 
 func init() {
@@ -1343,7 +1353,8 @@ func init() {
 }
 
 func main() {
-	var exitCode int
+	var err error
+	var cfgUpdated bool
 
 	switch kingpin.MustParse(app.Parse(os.Args[1:])) {
 	case appFlags.FullCommand():
@@ -1353,7 +1364,7 @@ func main() {
 
 		*appAppConfig, _ = filepath.Abs(*appAppConfig)
 		*appS3Config, _ = filepath.Abs(*appS3Config)
-		exitCode = updateConfigFromApp(*appAppConfig, *appS3Config)
+		err = updateConfigFromApp(*appAppConfig, *appS3Config)
 	case createFlags.FullCommand():
 		level.Debug(logger).Log("command", createFlags.FullCommand())
 		level.Debug(logger).Log("flag", "--ceph-config", "value", *createS3Config)
@@ -1362,7 +1373,7 @@ func main() {
 
 		*createS3Config, _ = filepath.Abs(*createS3Config)
 		*createCredentials, _ = filepath.Abs(*createCredentials)
-		exitCode = createS3ConfigFile(*createS3Config, *createCredentials, *createBucketPostfix)
+		err = createS3ConfigFile(*createS3Config, *createCredentials, *createBucketPostfix)
 	case cfgFlags.FullCommand():
 		level.Debug(logger).Log("command", cfgFlags.FullCommand())
 		level.Debug(logger).Log("flag", "--ceph-config", "value", *cfgS3Config)
@@ -1371,25 +1382,23 @@ func main() {
 
 		*cfgS3Config, _ = filepath.Abs(*cfgS3Config)
 		*cfgCredentials, _ = filepath.Abs(*cfgCredentials)
-		exitCode = configureS3Server(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
+		cfgUpdated, err = configureS3Server(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 
-		if exitCode == 0 {
+		if cfgUpdated {
 			level.Info(logger).Log("msg", "server configuration updated successfully")
 			level.Info(logger).Log("msg", "update local config from server")
 
-			exitCode = createS3ConfigFile(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
-		} else if exitCode == 200 {
-			exitCode = 0
+			err = createS3ConfigFile(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 		}
 	}
 
-	if exitCode > 0 {
-		level.Error(logger).Log("msg", "exit", "code", exitCode)
+	if err != nil {
+		level.Error(logger).Log("msg", "exit main", "error", err.Error())
 
 		os.Exit(1)
 	}
 
-	level.Debug(logger).Log("msg", "exit", "code", exitCode)
+	level.Debug(logger).Log("msg", "exit")
 
 	os.Exit(0)
 
