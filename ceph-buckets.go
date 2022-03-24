@@ -34,7 +34,7 @@ import (
 const (
 	awsRegion string = "us-east-1"
 
-	// in Ceph need to set "HostnameImmutable" option to true for resolving path to bucket right
+	// In Ceph need to set "HostnameImmutable" option to true for resolving path to bucket right
 	forcePath bool = true
 	retryNum  int  = 10
 
@@ -196,7 +196,7 @@ func loadConfig(fs *string) (*ut.Config, bool) {
 
 func checkBucketName(b string) bool {
 
-	//Ignore comment strings starting from "#" or "//" and blank strings
+	// Ignore comment strings starting from "#" or "//" and blank strings
 	comre := regexp.MustCompile(`^(#|//|$)`)
 
 	if comre.MatchString(b) {
@@ -329,7 +329,7 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			if re.MatchString(*bucket.Name) {
 				level.Debug(logger).Log("msg", "bucket name was match pattern. Rename", "bucket", *bucket.Name, "regexp", matchPattern)
 
-				//Create name without postfix
+				// Create name without postfix
 				bn = re.ReplaceAllString(*bucket.Name, "")
 				level.Debug(logger).Log("msg", "new bucket name", "value", bn)
 			} else {
@@ -341,10 +341,8 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			bn = *bucket.Name
 		}
 
-		/*
-			Get Bucket ACL
-			Bucket ACL not supported yet in Ceph RGW S3 we use only owner now
-		*/
+		// Get Bucket ACL
+		// Bucket ACL not supported yet in Ceph RGW S3 we use only owner now
 		level.Debug(logger).Log("msg", "get bucket ACL", "bucket", *bucket.Name)
 
 		inputAcl := &s3.GetBucketAclInput{
@@ -377,13 +375,10 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 			b.Acl.Owner.Id = *aclResult.Owner.ID
 		}
 
-		/*
-			Get Bucket policies
-			Rewrite ACL rules from bucket policies
-		*/
-
 		level.Debug(logger).Log("msg", "get bucket policies", "bucket", *bucket.Name)
 
+		// Get Bucket policies
+		// Rewrite ACL rules from bucket policies
 		inputPol := &s3.GetBucketPolicyInput{
 			Bucket: bucket.Name,
 		}
@@ -443,15 +438,13 @@ func getS3Config(credsPath *string, bucketPostfix *string) ut.Buckets {
 
 		}
 
-		/*
-			Get Bucket versioning status
-		*/
 		level.Debug(logger).Log("msg", "get bucket versioning", "bucket", *bucket.Name)
 
 		inputVer := &s3.GetBucketVersioningInput{
 			Bucket: aws.String(*bucket.Name),
 		}
 
+		// Get Bucket versioning status
 		vResult, err := uf.GetBucketVersioning(context.TODO(), client, inputVer)
 
 		if err != nil {
@@ -672,9 +665,7 @@ func updateConfigFromApp(appPath string, confPath string) error {
 	return nil
 }
 
-/*
-	Bucket ACL not supported yet in Ceph RGW S3
-*/
+// Bucket ACL not supported yet in Ceph RGW S3
 func arrayIsEqual(a1 []string, a2 []string) bool {
 	sort.Strings(a1)
 	sort.Strings(a2)
@@ -694,9 +685,7 @@ func arrayIsEqual(a1 []string, a2 []string) bool {
 	return true
 }
 
-/*
-	Bucket ACL not supported yet in Ceph RGW S3
-*/
+// Bucket ACL not supported yet in Ceph RGW S3
 func aclEqual(lc *ut.Bucket, sc ut.Bucket, b *string) bool {
 	level.Debug(logger).Log("msg", "compare ACLs for bucket", "bucket", *b)
 
@@ -766,10 +755,9 @@ func compareConfigs(lc ut.Buckets, sc ut.Buckets) (ut.Buckets, bool) {
 			level.Debug(logger).Log("msg", "add server struct to result configuration", "value", fmt.Sprintf("%+v", sc[k]))
 
 			newCfgBucket := sc[k]
+
 			// Compare ACLs
-			/*
-				Bucket ACL not supported yet in Ceph RGW S3
-			*/
+			// Bucket ACL not supported yet in Ceph RGW S3
 			if !aclEqual(&v, sc[k], &k) {
 				level.Info(logger).Log("msg", "update ACL for bucket", "bucket", k)
 
@@ -914,10 +902,8 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 }
 
-/*
-	Bucket ACL not supported yet in Ceph RGW S3
-*/
-/* func applyS3Acl(bn string, b ut.Bucket, client *s3.Client) error {
+// Bucket ACL not supported yet in Ceph RGW S3
+func applyS3Acl(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
 
 	level.Info(logger).Log("msg", "update ACL", "bucket", bn)
@@ -928,7 +914,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		Bucket: aws.String(bn),
 	}
 
-	ba, err := GetBucketAcl(context.TODO(), client, input)
+	ba, err := uf.GetBucketAcl(context.TODO(), client, input)
 
 	if err != nil {
 		level.Error(logger).Log("msg", "error retriving ACL", "err", err.Error())
@@ -964,7 +950,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 		grants = append(grants, newGrant)
 	}
 
-	level.Debug(logger).Log("msg", "set grants", "bucket", bn, "value", fmt.Sprintf(grants))
+	level.Debug(logger).Log("msg", "set grants", "bucket", bn, "value", fmt.Sprintf("%+v", grants))
 
 	retryCount = retryNum
 
@@ -980,9 +966,9 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 			},
 		}
 
-		level.Debug(logger).Log("msg", "apply ACL", "bucket", bn, "value", fmt.Sprintf(*input))
+		level.Debug(logger).Log("msg", "apply ACL", "bucket", bn, "value", fmt.Sprintf("%+v", *input))
 
-		out, err := PutBucketAcl(context.TODO(), client, input)
+		out, err := uf.PutBucketAcl(context.TODO(), client, input)
 
 		retryCount--
 
@@ -1004,7 +990,7 @@ func createBucketPolicy(bn *string, b *ut.Bucket) (string, error) {
 
 	return nil
 
-} */
+}
 
 func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
@@ -1111,10 +1097,9 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
 
 	level.Info(logger).Log("msg", "update bucket policy", "bucket", bn)
-
-	// Create Bucket policy JSON
 	level.Debug(logger).Log("msg", "generate bucket policy", "bucket", bn)
 
+	// Create Bucket policy JSON
 	BucketPolicy, err := createBucketPolicy(&bn, &b)
 
 	if err != nil {
@@ -1252,9 +1237,8 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error
 		// Apply Bucket ACLs and Bucket Policy
 		switch aclType := b.AclType; aclType {
 		case "new", "updated":
-			/*
-				Bucket ACL not supported yet in Ceph RGW S3
-			*/
+
+			// Bucket ACL not supported yet in Ceph RGW S3
 			/*
 				err := applyS3Acl(bn, b, client)
 
