@@ -907,7 +907,6 @@ func applyS3Acl(bn string, b ut.Bucket, client *s3.Client) error {
 	var retryCount int
 
 	level.Info(logger).Log("msg", "update ACL", "bucket", bn)
-	level.Debug(logger).Log("msg", "get owner", "bucket", bn)
 
 	retryCount = retryNum
 	input := &s3.GetBucketAclInput{
@@ -1154,7 +1153,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error
 	client := createS3SvcClient(credsPath)
 
 	for bn, b := range *c {
-		// Create bucket
+		// Create bucket name
 		bn = bn + bucketPostfix
 
 		if b.BucketType == "new" {
@@ -1166,6 +1165,8 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error
 				input := &s3.CreateBucketInput{
 					Bucket: &bn,
 				}
+
+				// Create bucket
 				out, err := uf.CreateBucket(context.TODO(), client, input)
 
 				retryCount--
@@ -1191,7 +1192,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error
 
 		}
 
-		// Apply versioning if bucketType "new" or "updated"
+		// Apply versioning if VersioningType "updated"
 		if b.VersioningType == "updated" {
 			level.Info(logger).Log("msg", "update versioning", "bucket", bn)
 
@@ -1211,6 +1212,7 @@ func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error
 
 				level.Debug(logger).Log("msg", "apply versioning", "bucket", bn, "value", *input)
 
+				// Apply versioning
 				out, err := uf.PutBucketVersioning(context.TODO(), client, input)
 
 				retryCount--
