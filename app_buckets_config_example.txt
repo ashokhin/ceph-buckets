@@ -1,3 +1,8 @@
+# The following rules apply for naming buckets in Amazon S3:
+#	* Bucket names must be between 3 and 63 characters long.
+#	* Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
+#	* Bucket names must begin and end with a lowercase letter.
+
 foo
 bar
 baz

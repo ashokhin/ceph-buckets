@@ -14,6 +14,10 @@
     : файл, содержащий данные, необходимые для подключения к хранилищу Ceph. (см.пример [ceph_credentials_example.yml](./ceph_credentials_example.yml))
 - `app_buckets_config.txt`
     : файл, содержащий список бакетов, необходимых для работы приложения (см.пример [app_buckets_config_example.txt](./app_buckets_config_example.txt))
+    :exclamation: ВНИМАНИЕ! В именовании бакетов придерживайтесь требовайний S3-API:
+    - именя бакетов должны быть не короче 3 и не длиннее 63 символов;
+    - имена бакетов могут содержать только буквы в нижнем регистре, цифры и знаки тире (`-`);
+    - имена бакетов должны начинаться и заканчиваться на букву в нижнем регистре.
 
 ## Поддерживаемые операции:
 
@@ -23,7 +27,7 @@
         - "READ"
         - "WRITE"
 
-      :exclamation: ВНИМАНИЕ! На данный момент (10.12.2021) Bucket ACL не поддерживается в Ceph RGW S3 [(ссылка на документацию)](https://docs.ceph.com/en/nautilus/radosgw/bucketpolicy/). Цитата:
+      :exclamation: ВНИМАНИЕ! На данный момент (24.03.2022) Bucket ACL не поддерживается в Ceph RGW S3 [(ссылка на документацию)](https://docs.ceph.com/en/nautilus/radosgw/bucketpolicy/). Цитата:
 
       > We do not yet support setting policies on users, groups, or roles.
 

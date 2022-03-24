@@ -33,8 +33,11 @@ import (
 
 const (
 	awsRegion string = "us-east-1"
-	forcePath bool   = true
-	retryNum  int    = 10
+
+	// in Ceph need to set "HostnameImmutable" option to true for resolving path to bucket right
+	forcePath bool = true
+	retryNum  int  = 10
+
 	// See doc about BucketPolicyVersion https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_version.html
 	BucketPolicyVersion string = "2012-10-17"
 )
@@ -138,7 +141,7 @@ func printVersion() string {
 	build_date:           %q`, appName, appVersion, AppOrigin, appBranch, appRevision, appBuildUser, appBuildDate)
 }
 
-func FileExists(filepath string) bool {
+func fileExists(filepath string) bool {
 
 	fileinfo, err := os.Stat(filepath)
 
@@ -155,7 +158,7 @@ func readFile(fs *string) ([]byte, bool) {
 
 	level.Debug(logger).Log("msg", "read file", "file", *fs)
 
-	readOk = FileExists(*fs)
+	readOk = fileExists(*fs)
 
 	f, err := ioutil.ReadFile(*fs)
 
@@ -193,6 +196,14 @@ func loadConfig(fs *string) (*ut.Config, bool) {
 
 func checkBucketName(b string) bool {
 
+	//Ignore comment strings starting from "#" or "//" and blank strings
+	comre := regexp.MustCompile(`^(#|//|$)`)
+
+	if comre.MatchString(b) {
+		// Skip comment as bucket name
+		return false
+	}
+
 	re := regexp.MustCompile(`^[a-z][a-z0-9-]{1,61}[a-z]$`)
 
 	if re.MatchString(b) {
@@ -200,9 +211,9 @@ func checkBucketName(b string) bool {
 	} else {
 		level.Warn(logger).Log("msg", `String doesn't match naming rules and will be skipped.
 The following rules apply for naming buckets in Amazon S3:
-* Bucket names must be between 3 and 63 characters long.
-* Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
-* Bucket names must begin and end with a lowercase letter.
+	* Bucket names must be between 3 and 63 characters long.
+	* Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
+	* Bucket names must begin and end with a lowercase letter.
 	`, "value", b)
 
 		return false
@@ -251,12 +262,13 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 	level.Debug(logger).Log("msg", "create client for specified context")
 	level.Debug(logger).Log("msg", "loading S3 connection settings from file", "file", *credsPath)
 
-	yamlConfig.SetDefaults()
+	yamlConfigFromFile, loadOk := loadConfig(credsPath)
 
-	yamlConfig, loadOk := loadConfig(credsPath)
-
-	if !loadOk {
+	if loadOk {
+		yamlConfig = yamlConfigFromFile
+	} else {
 		level.Warn(logger).Log("msg", "config isn't loaded from file. Use default values", "file", *credsPath)
+		yamlConfig.SetDefaults()
 	}
 
 	level.Debug(logger).Log("msg", "show yamlConfig", "value", fmt.Sprintf("%+v", *yamlConfig))
@@ -267,7 +279,7 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 		s3Url = fmt.Sprintf("https://%s/", yamlConfig.EndpointUrl)
 	}
 
-	customResolver := aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
 			PartitionID:       "aws",
 			URL:               s3Url,
@@ -276,7 +288,7 @@ func createS3SvcClient(credsPath *string) *s3.Client {
 		}, nil
 	})
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithEndpointResolver(customResolver),
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithEndpointResolverWithOptions(customResolver),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(yamlConfig.AwsAccessKey,
 			yamlConfig.AwsSecretKey, "")))
 
@@ -612,8 +624,8 @@ func updateConfigFromApp(appPath string, confPath string) error {
 		if *debug {
 			level.Debug(logger).Log("msg", "buckets loaded")
 
-			for _, confBucket := range confBuckets {
-				level.Debug(logger).Log("msg", "bucket loaded", "bucket", confBucket)
+			for bucketName := range confBuckets {
+				level.Debug(logger).Log("msg", "bucket loaded", "bucket", bucketName)
 			}
 
 		}
@@ -1043,7 +1055,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) er
 	retryCount = retryNum
 
 	for retryCount > 0 {
-		level.Debug(logger).Log("msg", "set lifecycle configuration", "bucket", bn, fmt.Sprintf("%+v", lfcRules))
+		level.Debug(logger).Log("msg", "set lifecycle configuration", "bucket", bn, "value", fmt.Sprintf("%+v", lfcRules))
 
 		// Recreate/Delete lifecycle rules
 		// first: Delete old rules
@@ -1069,7 +1081,7 @@ func applyS3LifecycleConfiguration(bn string, b ut.Bucket, client *s3.Client) er
 			},
 		}
 
-		level.Debug(logger).Log("msg", "apply lifecycle configuration", "vault", fmt.Sprintf("%+v", *putLfc))
+		level.Debug(logger).Log("msg", "apply lifecycle configuration", "value", fmt.Sprintf("%+v", *putLfc))
 
 		putLfcOut, err := uf.PutBucketLifecycleConfiguration(context.TODO(), client, putLfc)
 
@@ -1347,7 +1359,7 @@ func init() {
 
 	timestampFormat := log.TimestampFormat(
 		func() time.Time { return time.Now().UTC() },
-		"2006-01-02T15:04:05.000Z07:00",
+		"2006-01-02T15:04:05.0000000Z07:00",
 	)
 	logger = log.With(logger, "timestamp", timestampFormat, "caller", log.DefaultCaller)
 }
@@ -1393,7 +1405,7 @@ func main() {
 	}
 
 	if err != nil {
-		level.Error(logger).Log("msg", "exit main", "error", err.Error())
+		level.Error(logger).Log("msg", "exit main", "err", err.Error())
 
 		os.Exit(1)
 	}
