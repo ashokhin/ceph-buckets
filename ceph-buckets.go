@@ -17,6 +17,7 @@ import (
 
 	uf "github.com/ashokhin/ceph-buckets/funcs"
 	ut "github.com/ashokhin/ceph-buckets/types"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -209,7 +210,7 @@ func checkBucketName(b string) bool {
 	if re.MatchString(b) {
 		return true
 	} else {
-		level.Warn(logger).Log("msg", `String doesn't match naming rules and will be skipped.
+		level.Warn(logger).Log("msg", `String doesn't match bucket naming rules and will be skipped.
 The following rules apply for naming buckets in Amazon S3:
 	* Bucket names must be between 3 and 63 characters long.
 	* Bucket names can consist only of lowercase letters, numbers, and hyphens (-).
@@ -1145,142 +1146,154 @@ func applyS3BucketPolicy(bn string, b ut.Bucket, client *s3.Client) error {
 	return nil
 }
 
-func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error {
-	level.Info(logger).Log("msg", "apply new configuration on server")
-
+func applyBucketConfig(ctx context.Context, client *s3.Client, b ut.Bucket, bn string) error {
 	var retryCount int
 
-	client := createS3SvcClient(credsPath)
+	if b.BucketType == "new" {
+		level.Info(logger).Log("msg", "create bucket", "bucket", bn)
 
-	for bn, b := range *c {
-		// Create bucket name
-		bn = bn + bucketPostfix
+		retryCount = retryNum
 
-		if b.BucketType == "new" {
-			level.Info(logger).Log("msg", "create bucket", "bucket", bn)
-
-			retryCount = retryNum
-
-			for retryCount > 0 {
-				input := &s3.CreateBucketInput{
-					Bucket: &bn,
-				}
-
-				// Create bucket
-				out, err := uf.CreateBucket(context.TODO(), client, input)
-
-				retryCount--
-
-				if err != nil {
-					if retryCount > 0 {
-						level.Debug(logger).Log("msg", "error creating bucket", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
-
-						time.Sleep(1 * time.Second)
-					} else {
-						level.Error(logger).Log("msg", "error creating bucket", "err", err.Error())
-
-						return err
-					}
-
-				} else {
-					level.Debug(logger).Log("msg", "bucket created", "bucket", bn)
-
-					break
-				}
-
+		for retryCount > 0 {
+			input := &s3.CreateBucketInput{
+				Bucket: &bn,
 			}
 
-		}
+			// Create bucket
+			out, err := uf.CreateBucket(context.TODO(), client, input)
 
-		// Apply versioning if VersioningType "updated"
-		if b.VersioningType == "updated" {
-			level.Info(logger).Log("msg", "update versioning", "bucket", bn)
+			retryCount--
 
-			var status types.BucketVersioningStatus = types.BucketVersioningStatus(strcase.ToCamel(b.Versioning))
+			if err != nil {
+				if retryCount > 0 {
+					level.Debug(logger).Log("msg", "error creating bucket", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
 
-			level.Debug(logger).Log("msg", "versioning status updated", "bucket", bn, "value", fmt.Sprintf("%+v", status))
-
-			retryCount = retryNum
-
-			for retryCount > 0 {
-				input := &s3.PutBucketVersioningInput{
-					Bucket: aws.String(bn),
-					VersioningConfiguration: &types.VersioningConfiguration{
-						Status: status,
-					},
-				}
-
-				level.Debug(logger).Log("msg", "apply versioning", "bucket", bn, "value", *input)
-
-				// Apply versioning
-				out, err := uf.PutBucketVersioning(context.TODO(), client, input)
-
-				retryCount--
-
-				if err != nil {
-					if retryCount > 0 {
-						level.Debug(logger).Log("msg", "error set versioning", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
-
-						time.Sleep(1 * time.Second)
-					} else {
-						level.Error(logger).Log("msg", "error set versioning", "bucket", bn, "err", err.Error())
-
-						return err
-					}
-
+					time.Sleep(1 * time.Second)
 				} else {
-					break
-				}
+					level.Error(logger).Log("msg", "error creating bucket", "err", err.Error())
 
-			}
-
-		}
-
-		// Apply Bucket ACLs and Bucket Policy
-		switch aclType := b.AclType; aclType {
-		case "new", "updated":
-
-			// Bucket ACL not supported yet in Ceph RGW S3
-			/*
-				err := applyS3Acl(bn, b, client)
-
-				if err != nil {
 					return err
 				}
-			*/
-			err := applyS3BucketPolicy(bn, b, client)
 
-			if err != nil {
-				return err
+			} else {
+				level.Debug(logger).Log("msg", "bucket created", "bucket", bn)
+
+				break
 			}
 
-		case "error":
-			level.Warn(logger).Log("msg", "ACL with type 'error' can't be applied! Skip.", "bucket", bn)
-		}
-
-		// Apply Lifecycle Configuration
-		switch LfcType := b.LifecycleType; LfcType {
-		case "new":
-			err := applyS3LifecycleConfiguration(bn, b, client)
-
-			if err != nil {
-				return err
-			}
-
-		case "updated":
-			err := applyS3LifecycleConfiguration(bn, b, client)
-
-			if err != nil {
-				return err
-			}
-
-		case "error":
-			level.Warn(logger).Log("msg", "lifecycle configuration with type 'error' can't be applied! Skip.", "bucket", bn)
 		}
 
 	}
 
+	// Apply versioning if VersioningType "updated"
+	if b.VersioningType == "updated" {
+		level.Info(logger).Log("msg", "update versioning", "bucket", bn)
+
+		var status types.BucketVersioningStatus = types.BucketVersioningStatus(strcase.ToCamel(b.Versioning))
+
+		level.Debug(logger).Log("msg", "versioning status updated", "bucket", bn, "value", fmt.Sprintf("%+v", status))
+
+		retryCount = retryNum
+
+		for retryCount > 0 {
+			input := &s3.PutBucketVersioningInput{
+				Bucket: aws.String(bn),
+				VersioningConfiguration: &types.VersioningConfiguration{
+					Status: status,
+				},
+			}
+
+			level.Debug(logger).Log("msg", "apply versioning", "bucket", bn, "value", *input)
+
+			// Apply versioning
+			out, err := uf.PutBucketVersioning(context.TODO(), client, input)
+
+			retryCount--
+
+			if err != nil {
+				if retryCount > 0 {
+					level.Debug(logger).Log("msg", "error set versioning", "bucket", bn, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+
+					time.Sleep(1 * time.Second)
+				} else {
+					level.Error(logger).Log("msg", "error set versioning", "bucket", bn, "err", err.Error())
+
+					return err
+				}
+
+			} else {
+				break
+			}
+
+		}
+
+	}
+
+	// Apply Bucket ACLs and Bucket Policy
+	switch aclType := b.AclType; aclType {
+	case "new", "updated":
+
+		// Bucket ACL not supported yet in Ceph RGW S3
+		/*
+			err := applyS3Acl(bn, b, client)
+
+			if err != nil {
+				return err
+			}
+		*/
+		err := applyS3BucketPolicy(bn, b, client)
+
+		if err != nil {
+			return err
+		}
+
+	case "error":
+		level.Warn(logger).Log("msg", "ACL with type 'error' can't be applied! Skip.", "bucket", bn)
+	}
+
+	// Apply Lifecycle Configuration
+	switch LfcType := b.LifecycleType; LfcType {
+	case "new":
+		err := applyS3LifecycleConfiguration(bn, b, client)
+
+		if err != nil {
+			return err
+		}
+
+	case "updated":
+		err := applyS3LifecycleConfiguration(bn, b, client)
+
+		if err != nil {
+			return err
+		}
+
+	case "error":
+		level.Warn(logger).Log("msg", "lifecycle configuration with type 'error' can't be applied! Skip.", "bucket", bn)
+	}
+
 	return nil
+
+}
+
+func applyS3Config(c *ut.Buckets, credsPath *string, bucketPostfix string) error {
+	level.Info(logger).Log("msg", "apply new configuration on server")
+
+	ctx := context.Background()
+	client := createS3SvcClient(credsPath)
+	g, ctx := errgroup.WithContext(ctx)
+
+	for bn, b := range *c {
+		// Create bucket name
+		bn := bn + bucketPostfix
+		b := b
+
+		g.Go(func() error {
+			return applyBucketConfig(ctx, client, b, bn)
+		})
+
+	}
+
+	return g.Wait()
 }
 
 func configureS3Server(confPath string, credsPath string, bucketPostfix string) (bool, error) {
@@ -1325,7 +1338,7 @@ func configureS3Server(confPath string, credsPath string, bucketPostfix string) 
 	} else {
 		level.Info(logger).Log("msg", "server's configuration already up to date")
 
-		return true, nil
+		return false, nil
 	}
 
 	return true, nil
@@ -1345,7 +1358,7 @@ func init() {
 
 	timestampFormat := log.TimestampFormat(
 		func() time.Time { return time.Now().UTC() },
-		"2006-01-02T15:04:05.0000000Z07:00",
+		"2006-01-02T15:04:05.000000Z07:00",
 	)
 	logger = log.With(logger, "timestamp", timestampFormat, "caller", log.DefaultCaller)
 }
@@ -1353,6 +1366,7 @@ func init() {
 func main() {
 	var err error
 	var cfgUpdated bool
+	time_start := time.Now()
 
 	switch kingpin.MustParse(app.Parse(os.Args[1:])) {
 	case appFlags.FullCommand():
@@ -1383,12 +1397,14 @@ func main() {
 		cfgUpdated, err = configureS3Server(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 
 		if cfgUpdated {
-			level.Info(logger).Log("msg", "server configuration updated successfully")
+			level.Info(logger).Log("msg", "server's configuration updated successfully")
 			level.Info(logger).Log("msg", "update local config from server")
 
 			err = createS3ConfigFile(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 		}
 	}
+
+	time_end := time.Since(time_start)
 
 	if err != nil {
 		level.Error(logger).Log("msg", "exit main", "err", err.Error())
@@ -1397,6 +1413,8 @@ func main() {
 	}
 
 	level.Debug(logger).Log("msg", "exit")
+
+	fmt.Println(time_end)
 
 	os.Exit(0)
 
