@@ -4,7 +4,30 @@
 
 Подробнее о возможностях S3-совместимого хранилища Вы можете прочесть в документации Ceph [(ссылка на документацию)](https://docs.ceph.com/en/latest/radosgw/s3/#).
 
-#### Здесь и далее:
+## Предварительные работы на Ceph:
+
+### Создание основного пользователя:
+Для основного пользователя выполните на Ceph команду:
+
+```
+radosgw-admin user create --uid="s3_admin" --display-name="S3 Admin" --key-type="s3"
+```
+
+Здесь **s3_admin** - пользователь, под которым будет выполняться подключение к хранилищу, и создание бакетов. "**S3 Admin**" - отображаемое имя. 
+Этот параметр ни на что не ввлияет.
+
+### Создание дополнительных пользователей
+Для создания дополнительных пользователей необходимо их создавать как наследуемых от основного пользователя.
+
+Пример для пользователей **bob** и **alice**:
+```
+radosgw-admin subuser create --uid="s3_admin" --subuser="alice" --display-name="alice" --key-type="s3"
+radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bob" --key-type="s3"
+```
+
+:exclamation: ВНИМАНИЕ! Наследование пользователей от основного необходимо для того, чтобы дополнительные пользователи смогли увидет бакеты, созданные основным пользователем.
+
+### Здесь и далее:
 
 - `ceph-buckets`
     : бинарный файл для создания и обновления бакетов в Amazon S3-compatible хранилище Ceph;
@@ -14,6 +37,7 @@
     : файл, содержащий данные, необходимые для подключения к хранилищу Ceph. (см.пример [ceph_credentials_example.yml](./ceph_credentials_example.yml))
 - `app_buckets_config.txt`
     : файл, содержащий список бакетов, необходимых для работы приложения (см.пример [app_buckets_config_example.txt](./app_buckets_config_example.txt))
+    
     :exclamation: ВНИМАНИЕ! В именовании бакетов придерживайтесь требовайний S3-API:
     - именя бакетов должны быть не короче 3 и не длиннее 63 символов;
     - имена бакетов могут содержать только буквы в нижнем регистре, цифры и знаки тире (`-`);
@@ -27,11 +51,11 @@
         - "READ"
         - "WRITE"
 
-      :exclamation: ВНИМАНИЕ! На данный момент (24.03.2022) Bucket ACL не поддерживается в Ceph RGW S3 [(ссылка на документацию)](https://docs.ceph.com/en/nautilus/radosgw/bucketpolicy/). Цитата:
+      :exclamation: ВНИМАНИЕ! На данный момент (24.03.2022) **Bucket ACL** не поддерживается в Ceph RGW S3 [(ссылка на документацию)](https://docs.ceph.com/en/nautilus/radosgw/bucketpolicy/). Цитата:
 
       > We do not yet support setting policies on users, groups, or roles.
 
-      В связи с этим, права доступа пока управляются через методы Bucket policy.
+      В связи с этим, права доступа пока управляются через методы **Bucket policy**.
       
     - Создание/изменение параметров жизненного цикла файлов (**Lifecycle Configuration** [(ссылка на документацию)](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html)). Поддеживаемый тип <sup id="a3">[3](#f3)</sup>:
         - "Expiration actions"
@@ -60,7 +84,7 @@
 
 ## Использование:
 
-#### Поддерживаемые параметры:
+### Поддерживаемые параметры:
 
 | тип | параметр | описание |
 | - | - | - |
@@ -73,7 +97,7 @@
 | команда |  `create [<flags>]` | Создать `ceph_config.yml` на основе данных с сервера |
 | команда |  `config [<flags>]` | Создать/обновить бакеты на сервере, на основе данных из `ceph_config.yml` |
 
-##### На примере флага `--help-long` и команды `help app`:
+#### На примере флага `--help-long` и команды `help app`:
 
 ```
 # ceph-buckets --help-long
@@ -132,7 +156,7 @@ Flags:
              Ceph configuration YAML-file.
 ```
 
-#### Перед использованием:
+### Перед использованием:
 Заполните файл `ceph_credentials.yaml`, указав следующее:
 * `endpoint_url:` IP/FQDN и порт хоста Ceph, например `endpoint_url: "127.0.0.1:8080"`
 * `access_key:` Ключ пользователя, под которым будет выполняться подключение, например `access_key: "445S7Y2GPP3R2PVPXH62"`
@@ -141,19 +165,19 @@ Flags:
 
 Полный пример конфигурации можно посмотреть в файле [ceph_credentials_example.yml](./ceph_credentials_example.yml)
 
-#### Создание/обновление конфигурационного файла из данных с сервера Ceph:
+### Создание/обновление конфигурационного файла из данных с сервера Ceph:
 
 ```
 ceph-buckets create --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml --bucket-postfix="-rls"
 ```
 
-#### Создание/обновление конфигурационного файла из списка бакетов приложения:
+### Создание/обновление конфигурационного файла из списка бакетов приложения:
 
 ```
 ceph-buckets app --app-config ./app_buckets_config.txt --ceph-config ./ceph_config.yml
 ```
 
-#### Создание/обновление бакетов на сервере Ceph из данных из конфигурационного файла:
+### Создание/обновление бакетов на сервере Ceph из данных из конфигурационного файла:
 
 ```
 ceph-buckets config --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml --bucket-postfix="-rls"
