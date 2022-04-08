@@ -46,30 +46,35 @@ const (
 var (
 	logger log.Logger
 
-	appName      = "ceph-buckets"
-	appBranch    = "None"
-	appVersion   = "dev"
-	appRevision  = "0"
-	AppOrigin    = "./"
-	appBuildUser = "nobody"
-	appBuildDate = "None"
-
-	app   = kingpin.New("ceph-buckets", "A command-line application for manage Ceph configuration of Amazon S3-compatible storage based on Ceph.")
-	debug = app.Flag("debug", "Enable debug mode.").Bool()
-
-	appFlags     = app.Command("app", "Create/Update Ceph configuration YAML-file from application's TXT-file.")
-	appAppConfig = appFlags.Flag("app-config", "Application's TXT-file, contains buckets list.").Default("./app_buckets_config.txt").String()
-	appS3Config  = appFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
-
-	createFlags         = app.Command("create", "Create/Update Ceph configuration YAML-file from server.")
-	createS3Config      = createFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
-	createCredentials   = createFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
-	createBucketPostfix = createFlags.Flag("bucket-postfix", "Bucket postfix to be deleted from the bucket name.").Default("").String()
-
-	cfgFlags         = app.Command("config", "Create/Update Ceph configuration on server from YAML-file.")
-	cfgS3Config      = cfgFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
-	cfgCredentials   = cfgFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
-	cfgBucketPostfix = cfgFlags.Flag("bucket-postfix", "Bucket postfix to be added to the bucket name.").Default("").String()
+	appName                = "ceph-buckets"
+	appBranch              = "None"
+	appVersion             = "dev"
+	appRevision            = "0"
+	AppOrigin              = "./"
+	appBuildUser           = "nobody"
+	appBuildDate           = "None"
+	app                    = kingpin.New("ceph-buckets", "A command-line application for manage Ceph configuration of Amazon S3-compatible storage based on Ceph.")
+	debug                  = app.Flag("debug", "Enable debug mode.").Bool()
+	appFlags               = app.Command("app", "Create/Update Ceph configuration YAML-file from application's TXT-file.")
+	appAppConfig           = appFlags.Flag("app-config", "Application's TXT-file, contains buckets list.").Default("./app_buckets_config.txt").String()
+	appS3Config            = appFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
+	createFlags            = app.Command("create", "Create/Update Ceph configuration YAML-file from server.")
+	createS3Config         = createFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
+	createCredentials      = createFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
+	createBucketPostfix    = createFlags.Flag("bucket-postfix", "Bucket postfix to be deleted from the bucket name.").Default("").String()
+	cfgFlags               = app.Command("config", "Create/Update Ceph configuration on server from YAML-file.")
+	cfgS3Config            = cfgFlags.Flag("ceph-config", "Ceph configuration YAML-file.").Default("./ceph_config.yml").String()
+	cfgCredentials         = cfgFlags.Flag("credentials", "Ceph credentials YAML-file.").Default("./ceph_credentials.yml").String()
+	cfgBucketPostfix       = cfgFlags.Flag("bucket-postfix", "Bucket postfix to be added to the bucket name.").Default("").String()
+	csvFlags               = app.Command("parse-csv", "Parse CSV source file and write result to YAML file.")
+	csvCsvFile             = csvFlags.Flag("csv-file", "Source CSV file, contains buckets ACL.").Default("./buckets_acl.csv").String()
+	csvYamlFile            = csvFlags.Flag("yaml-file", "Destination YAML file.").Default("./ceph_config_from_csv.yml").String()
+	csvFieldsPerRecord     = csvFlags.Flag("fields-per-record", "Number of fields per record").Default("3").Int()
+	csvFieldsSeparator     = csvFlags.Flag("fields-sep", "Fields separator for CSV fields").Default(";").String()
+	yamlFlags              = app.Command("parse-yaml", "Parse YAML source file and write result to CSV file.")
+	yamlYamlFile           = yamlFlags.Flag("yaml-file", "Source YAML file, contains buckets ACL.").Default("./ceph_config.yml").String()
+	yamlCsvFile            = yamlFlags.Flag("csv-file", "Desctination CSV file.").Default("./buckets_acl_from_yaml.csv").String()
+	yamlCsvFieldsSeparator = yamlFlags.Flag("fields-sep", "Fields separator for CSV fields").Default(";").String()
 
 	BucketPolicyWriteAction = []string{
 		"s3:GetAccelerateConfiguration",
@@ -1406,6 +1411,22 @@ func main() {
 
 			err = createS3ConfigFile(*cfgS3Config, *cfgCredentials, *cfgBucketPostfix)
 		}
+	case csvFlags.FullCommand():
+		level.Debug(logger).Log("command", csvFlags.FullCommand())
+		level.Debug(logger).Log("flag", "--csv-file", "value", *csvCsvFile)
+		level.Debug(logger).Log("flag", "--yaml-file", "value", *csvYamlFile)
+
+		*csvCsvFile, _ = filepath.Abs(*csvCsvFile)
+		*csvYamlFile, _ = filepath.Abs(*csvYamlFile)
+		err = parseCsvToYaml(*csvCsvFile, *csvYamlFile, *csvFieldsSeparator, *csvFieldsPerRecord)
+	case yamlFlags.FullCommand():
+		level.Debug(logger).Log("command", yamlFlags.FullCommand())
+		level.Debug(logger).Log("flag", "--yaml-file", "value", *yamlYamlFile)
+		level.Debug(logger).Log("flag", "--csv-file", "value", *yamlCsvFile)
+
+		*yamlYamlFile, _ = filepath.Abs(*yamlYamlFile)
+		*yamlCsvFile, _ = filepath.Abs(*yamlCsvFile)
+		err = parseYamlToCsv(*yamlYamlFile, *yamlCsvFile, *yamlCsvFieldsSeparator)
 	}
 
 	time_end := time.Since(time_start)

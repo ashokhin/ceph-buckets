@@ -7,6 +7,7 @@
 ## Предварительные работы на Ceph:
 
 ### Создание основного пользователя:
+
 Для основного пользователя выполните на Ceph команду:
 
 ```
@@ -16,7 +17,8 @@ radosgw-admin user create --uid="s3_admin" --display-name="S3 Admin" --key-type=
 Здесь **s3_admin** - пользователь, под которым будет выполняться подключение к хранилищу, и создание бакетов. "**S3 Admin**" - отображаемое имя. 
 Этот параметр ни на что не ввлияет.
 
-### Создание дополнительных пользователей
+### Создание дополнительных пользователей:
+
 Для создания дополнительных пользователей необходимо их создавать как наследуемых от основного пользователя.
 
 Пример для пользователей **bob** и **alice**:
@@ -37,6 +39,9 @@ radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bo
     : файл, содержащий данные, необходимые для подключения к хранилищу Ceph. (см.пример [ceph_credentials_example.yml](./ceph_credentials_example.yml))
 - `app_buckets_config.txt`
     : файл, содержащий список бакетов, необходимых для работы приложения (см.пример [app_buckets_config_example.txt](./app_buckets_config_example.txt))
+
+- `buckets_acl.csv`
+    : файл, содержащий список бакетов и ACL для этих бакетов в формате `"bucket";"read";"write";` (см.пример [buckets_example.csv](./buckets_acl_example.csv))
     
     :exclamation: ВНИМАНИЕ! В именовании бакетов придерживайтесь требовайний S3-API:
     - именя бакетов должны быть не короче 3 и не длиннее 63 символов;
@@ -61,8 +66,6 @@ radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bo
         - "Expiration actions"
 
 - Создание/изменение конфигурационного файла для последующего применения на Amazon s3 хранилище.
-
-
 
 ## Сборка:
 
@@ -94,8 +97,10 @@ radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bo
 | флаг | `--version` | Вывести информацию о версии и сборке |
 | команда | `help [<command>]` | Вывести контекстную помощь по указанной команде |
 | команда | `app [<flags>]` | Создать/обновить `ceph_config.yml` на основе списка бакетов приложения (`app_buckets_config.txt`) |
-| команда |  `create [<flags>]` | Создать `ceph_config.yml` на основе данных с сервера |
-| команда |  `config [<flags>]` | Создать/обновить бакеты на сервере, на основе данных из `ceph_config.yml` |
+| команда | `create [<flags>]` | Создать `ceph_config.yml` на основе данных с сервера |
+| команда | `config [<flags>]` | Создать/обновить бакеты на сервере, на основе данных из `ceph_config.yml` |
+| команда | `parse-csv [<flags>]` | Создать/обновить `ceph_config.yml` на основе списка бакетов и ACL из CSV файла (`buckets_acl.csv`) |
+| команда | `parse-yaml [<flags>]` | Создать/обновить `buckets_acl.csv` на основе конфигурации сервера из YAML файла (`ceph_config.yml`)
 
 #### На примере флага `--help-long` и команды `help app`:
 
@@ -114,31 +119,51 @@ Commands:
   help [<command>...]
     Show help.
 
+
   app [<flags>]
     Create/Update Ceph configuration YAML-file from application's TXT-file.
 
-    --app-config="./app_buckets_config.txt"  
+    --app-config="./app_buckets_config.txt"
       Application's TXT-file, contains buckets list.
-    --ceph-config="./ceph_config.yml"  
+    --ceph-config="./ceph_config.yml"
       Ceph configuration YAML-file.
 
   create [<flags>]
     Create/Update Ceph configuration YAML-file from server.
 
-    --ceph-config="./ceph_config.yml"  
+    --ceph-config="./ceph_config.yml"
                          Ceph configuration YAML-file.
-    --credentials="./ceph_credentials.yml"  
+    --credentials="./ceph_credentials.yml"
                          Ceph credentials YAML-file.
     --bucket-postfix=""  Bucket postfix to be deleted from the bucket name.
 
   config [<flags>]
     Create/Update Ceph configuration on server from YAML-file.
 
-    --ceph-config="./ceph_config.yml"  
+    --ceph-config="./ceph_config.yml"
                          Ceph configuration YAML-file.
-    --credentials="./ceph_credentials.yml"  
+    --credentials="./ceph_credentials.yml"
                          Ceph credentials YAML-file.
     --bucket-postfix=""  Bucket postfix to be added to the bucket name.
+
+  parse-csv [<flags>]
+    Parse CSV source file and write result to YAML file.
+
+    --csv-file="./buckets_acl.csv"
+                           Source CSV file, contains buckets ACL.
+    --yaml-file="./ceph_config_from_csv.yml"
+                           Destination YAML file.
+    --fields-per-record=3  Number of fields per record
+    --fields-sep=";"       Fields separator for CSV fields
+
+  parse-yaml [<flags>]
+    Parse YAML source file and write result to CSV file.
+
+    --yaml-file="./ceph_config.yml"
+                      Source YAML file, contains buckets ACL.
+    --csv-file="./buckets_from_yaml.csv"
+                      Desctination CSV file.
+    --fields-sep=";"  Fields separator for CSV fields
 
 
 # ceph-buckets help app
@@ -150,9 +175,9 @@ Flags:
   --help     Show context-sensitive help (also try --help-long and --help-man).
   --debug    Enable debug mode.
   --version  Show application version.
-  --app-config="./app_buckets_config.txt"  
+  --app-config="./app_buckets_config.txt"
              Application's TXT-file, contains buckets list.
-  --ceph-config="./ceph_config.yml"  
+  --ceph-config="./ceph_config.yml"
              Ceph configuration YAML-file.
 ```
 
@@ -183,8 +208,15 @@ ceph-buckets app --app-config ./app_buckets_config.txt --ceph-config ./ceph_conf
 ceph-buckets config --ceph-config ./ceph_config.yml --credentials ./ceph_credentials.yml --bucket-postfix="-rls"
 ```
 
+### Создание/обновление конфигурационного YAML файла из CSV файла:
+```
+ceph-buckets parse-csv --csv-file ./buckets_acl.csv --yaml-file ./ceph_config_from_csv.yml
+```
 
-
+### Создание CSV файла из конфигурационного YAML файла:
+```
+ceph-buckets parse-yaml --yaml-file ./ceph_config.yml --csv-file ./buckets_acl_from_yaml.csv
+```
 
 ----
 ### Примечания:
