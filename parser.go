@@ -100,7 +100,8 @@ func parseCsvToYaml(csvFile string, yamlFile string, csvSep string, csvFieldsNum
 	data, err := yaml.Marshal(&buckets)
 
 	if err != nil {
-		fmt.Printf("Failed to parse yaml. Error: '%s'", err.Error())
+		level.Error(logger).Log("msg", "failed to parse yaml", "error", err.Error())
+
 		return err
 	}
 
@@ -112,7 +113,6 @@ func parseCsvToYaml(csvFile string, yamlFile string, csvSep string, csvFieldsNum
 }
 
 func parseYamlToCsv(yamlFile string, csvFile string, csvSep string) error {
-
 	cfg := make(ut.Buckets)
 
 	f, err := ioutil.ReadFile(yamlFile)
@@ -129,6 +129,7 @@ func parseYamlToCsv(yamlFile string, csvFile string, csvSep string) error {
 		return err
 	}
 
+	// Create slince for configuration sorting
 	keys := make([]string, 0, len(cfg))
 
 	for k := range cfg {
@@ -138,11 +139,13 @@ func parseYamlToCsv(yamlFile string, csvFile string, csvSep string) error {
 	sort.Strings(keys)
 
 	file, err := os.OpenFile(csvFile, os.O_RDWR|os.O_CREATE, 0644)
+
 	if err != nil {
 		level.Error(logger).Log("error", err)
 
 		return err
 	}
+
 	defer file.Close()
 
 	writer := csv.NewWriter(file)
@@ -151,8 +154,10 @@ func parseYamlToCsv(yamlFile string, csvFile string, csvSep string) error {
 
 	for index, bucket := range keys {
 		if index == 0 {
-			//fmt.Fprintln(w, `"bucket";"read";"write"`)
+			// Write CSV-header
 			csvHeader := []string{"bucket", "read", "write"}
+			level.Debug(logger).Log("msg", "write csv header", "value", fmt.Sprintf("%s", csvHeader))
+
 			if err := writer.Write(csvHeader); err != nil {
 				level.Error(logger).Log("msg", "error writing header to file", "error", err)
 
