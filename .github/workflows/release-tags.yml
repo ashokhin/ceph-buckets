@@ -55,9 +55,6 @@ jobs:
       with:
         name: build
     
-    - run: ls -al ./
-    - run: ls -al ./*
-    
     - name: Create release
       id: create_release
       uses: actions/create-release@v1
@@ -76,7 +73,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./build/ceph-buckets.tar.gz
+        asset_path: ./ceph-buckets.tar.gz
         asset_name: ceph-buckets-${{ steps.release_meta.outputs.tag }}-linux-amd64.tar.gz
         asset_content_type: application/gzip
 

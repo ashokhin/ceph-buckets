@@ -1,8 +1,10 @@
-name: Release tags
+name: Build and test
 
 on:
   push:
     branches: [ "master" ]
+    tags:
+      - "!v*"
 
 jobs:
 
