@@ -55,6 +55,9 @@ jobs:
       with:
         name: build
     
+    - run: ls -al ./
+    - run: ls -al ./*
+    
     - name: Create release
       id: create_release
       uses: actions/create-release@v1
