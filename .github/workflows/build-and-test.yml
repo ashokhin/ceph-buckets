@@ -1,14 +1,13 @@
-name: Go
+name: Release tags
 
 on:
   push:
-    branches: [ "master" ]
-  pull_request:
     branches: [ "master" ]
 
 jobs:
 
   build:
+    name: Build and test
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -19,10 +18,9 @@ jobs:
         go-version: 1.18
 
     - name: Build
-      run: go build -v ./...
-
-    - name: Test
-      run: go test -v ./...
+      run: make
     
-    - name: Debug
-      run: ls -al ./
+    - name: Check version
+      run: |
+        chmod +x ./ceph-buckets
+        ./ceph-buckets --version
