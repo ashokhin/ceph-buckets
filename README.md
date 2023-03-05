@@ -15,7 +15,7 @@ radosgw-admin user create --uid="s3_admin" --display-name="S3 Admin" --key-type=
 ```
 
 Здесь **s3_admin** - пользователь, под которым будет выполняться подключение к хранилищу, и создание бакетов. "**S3 Admin**" - отображаемое имя. 
-Этот параметр ни на что не ввлияет.
+Этот параметр ни на что не влияет.
 
 ### Создание дополнительных пользователей:
 
@@ -27,7 +27,7 @@ radosgw-admin subuser create --uid="s3_admin" --subuser="alice" --display-name="
 radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bob" --key-type="s3"
 ```
 
-:exclamation: ВНИМАНИЕ! Наследование пользователей от основного необходимо для того, чтобы дополнительные пользователи смогли увидет бакеты, созданные основным пользователем.
+:exclamation: ВНИМАНИЕ! Наследование пользователей от основного необходимо для того, чтобы дополнительные пользователи смогли увидеть бакеты, созданные основным пользователем.
 
 ### Здесь и далее:
 
@@ -43,8 +43,8 @@ radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bo
 - `buckets_acl.csv`
     : файл, содержащий список бакетов и ACL для этих бакетов в формате `"bucket";"read";"write";` (см.пример [buckets_example.csv](./buckets_acl_example.csv))
     
-    :exclamation: ВНИМАНИЕ! В именовании бакетов придерживайтесь требовайний S3-API:
-    - именя бакетов должны быть не короче 3 и не длиннее 63 символов;
+    :exclamation: ВНИМАНИЕ! В именовании бакетов придерживайтесь требований S3-API:
+    - имена бакетов должны быть не короче 3 и не длиннее 63 символов;
     - имена бакетов могут содержать только буквы в нижнем регистре, цифры и знаки тире (`-`);
     - имена бакетов должны начинаться и заканчиваться на букву в нижнем регистре.
 
@@ -62,7 +62,7 @@ radosgw-admin subuser create --uid="s3_admin" --subuser="bob" --display-name="bo
 
       В связи с этим, права доступа пока управляются через методы **Bucket policy**.
       
-    - Создание/изменение параметров жизненного цикла файлов (**Lifecycle Configuration** [(ссылка на документацию)](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html)). Поддеживаемый тип <sup id="a3">[3](#f3)</sup>:
+    - Создание/изменение параметров жизненного цикла файлов (**Lifecycle Configuration** [(ссылка на документацию)](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html)). Поддерживаемый тип <sup id="a3">[3](#f3)</sup>:
         - "Expiration actions"
 
 - Создание/изменение конфигурационного файла для последующего применения на Amazon s3 хранилище.
@@ -162,7 +162,7 @@ Commands:
     --yaml-file="./ceph_config.yml"
                       Source YAML file, contains buckets ACL.
     --csv-file="./buckets_from_yaml.csv"
-                      Desctination CSV file.
+                      Destination CSV file.
     --fields-sep=";"  Fields separator for CSV fields
 
 
