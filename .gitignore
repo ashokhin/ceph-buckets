@@ -4,3 +4,5 @@
 /ceph_config.yml
 /app_buckets_config.txt
 /buckets_acl.csv
+/go.work
+/go.work.sum

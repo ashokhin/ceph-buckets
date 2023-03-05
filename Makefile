@@ -13,7 +13,7 @@ export APP_VERSION		:= $(shell basename ${APP_BRANCH})
 export APP_USER			:= $(shell id -u --name)
 export APP_BUILD_DATE	:= $(shell date -u '+%Y-%m-%dT%H:%M:%S,%N%:z')
 
-all: clean format vet build
+all: clean format vet test build
 
 clean:
 	@echo ">> removing build artifacts"
@@ -27,6 +27,11 @@ format:
 vet:
 	@echo ">> vetting code"
 	@go vet $(pkgs)
+
+test:
+	@echo ">> testing code"
+	@go test ./collector
+	@go test .
 
 build:
 	@echo ">> building binary"
