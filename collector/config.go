@@ -199,7 +199,9 @@ func ParseYamlToCsv(c *Collector) error {
 	// load buckets map from '--yaml-file' path
 	if err = c.loadCephConfigFile(c.YamlFilePath); err != nil {
 		level.Warn(c.Logger).Log("msg", "configuration from YAML file not loaded", "error", err.Error())
-		level.Info(c.Logger).Log("msg", "use blank Ceph configuration map")
+		level.Info(c.Logger).Log("msg", "nothing to write")
+
+		return err
 	}
 
 	if err = writeBucketsToCsv(c); err != nil {

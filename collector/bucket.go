@@ -119,7 +119,7 @@ type LifecycleRule struct {
 	Status         string `yaml:"status"`
 }
 
-type Buckets map[string]Bucket
+type buckets map[string]Bucket
 
 type BucketPolicyPrincipal struct {
 	PrincipalType []string `json:"AWS"`
@@ -348,7 +348,7 @@ func (b *Bucket) applyBucketPolicy(c *Collector) error {
 	BucketPolicy, err := b.createBucketPolicy(c)
 
 	if err != nil {
-		level.Error(c.Logger).Log("msg", "error marshaling Bucket policy to JSON", "bucket", b.name, "err", err.Error())
+		level.Error(c.Logger).Log("msg", "error marshaling Bucket policy to JSON", "bucket", b.name, "error", err.Error())
 
 		return err
 	}
@@ -380,11 +380,11 @@ func (b *Bucket) applyBucketPolicy(c *Collector) error {
 
 		if err != nil {
 			if retryCount > 0 {
-				level.Warn(c.Logger).Log("msg", "error applying Bucket policy", "bucket", b.name, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+				level.Warn(c.Logger).Log("msg", "error applying Bucket policy", "bucket", b.name, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "error", err.Error())
 
 				time.Sleep(1 * time.Second)
 			} else {
-				level.Error(c.Logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
+				level.Error(c.Logger).Log("msg", "error applying lifecycle configuration", "error", err.Error())
 
 				return err
 			}
@@ -494,16 +494,16 @@ func (b *Bucket) fillBucketPolicy(op string, grants []string, bpsa []BucketPolic
 	return bpsa
 }
 
-func (b Buckets) HasKey(k string) bool {
+func (b buckets) HasKey(k string) bool {
 	_, ok := b[k]
 
 	return ok
 }
 
-func compareBuckets(fc Buckets, sc Buckets, logger log.Logger) (Buckets, bool) {
+func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
 	var bucketsUpdated bool
 
-	newBuckets := make(Buckets)
+	newBuckets := make(buckets)
 
 	level.Debug(logger).Log("msg", "compare local and server's configurations")
 
@@ -586,11 +586,11 @@ func (b *Bucket) applyBucketConfig(c *Collector) error {
 			if err != nil {
 
 				if retryCount > 0 {
-					level.Warn(c.Logger).Log("msg", "error creating bucket", "bucket", b.name, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+					level.Warn(c.Logger).Log("msg", "error creating bucket", "bucket", b.name, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "error", err.Error())
 
 					time.Sleep(1 * time.Second)
 				} else {
-					level.Error(c.Logger).Log("msg", "error creating bucket", "err", err.Error())
+					level.Error(c.Logger).Log("msg", "error creating bucket", "error", err.Error())
 
 					return err
 				}
@@ -630,11 +630,11 @@ func (b *Bucket) applyBucketConfig(c *Collector) error {
 
 			if err != nil {
 				if retryCount > 0 {
-					level.Warn(c.Logger).Log("msg", "error set versioning", "bucket", b.name, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "err", err.Error())
+					level.Warn(c.Logger).Log("msg", "error set versioning", "bucket", b.name, "output", fmt.Sprintf("%+v", out), "retry_attempts_left", retryCount, "error", err.Error())
 
 					time.Sleep(1 * time.Second)
 				} else {
-					level.Error(c.Logger).Log("msg", "error set versioning", "bucket", b.name, "err", err.Error())
+					level.Error(c.Logger).Log("msg", "error set versioning", "bucket", b.name, "error", err.Error())
 
 					return err
 				}
@@ -746,7 +746,7 @@ func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
 			Bucket: aws.String(b.name),
 		})
 		if err != nil {
-			level.Error(c.Logger).Log("msg", "error deleting old lifecycle configuration", "bucket", b.name, "output", fmt.Sprintf("%+v", delLfcOut), "err", err.Error())
+			level.Error(c.Logger).Log("msg", "error deleting old lifecycle configuration", "bucket", b.name, "output", fmt.Sprintf("%+v", delLfcOut), "error", err.Error())
 
 			return err
 		}
@@ -774,9 +774,9 @@ func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
 
 		if err != nil {
 			if retryCount > 0 {
-				level.Debug(c.Logger).Log("msg", "error applying lifecycle configuration", "bucket", b.name, "output", fmt.Sprintf("%+v", putLfcOut), "retry_attempts_left", retryCount, "err", err.Error())
+				level.Debug(c.Logger).Log("msg", "error applying lifecycle configuration", "bucket", b.name, "output", fmt.Sprintf("%+v", putLfcOut), "retry_attempts_left", retryCount, "error", err.Error())
 			} else {
-				level.Error(c.Logger).Log("msg", "error applying lifecycle configuration", "err", err.Error())
+				level.Error(c.Logger).Log("msg", "error applying lifecycle configuration", "error", err.Error())
 
 				return err
 			}

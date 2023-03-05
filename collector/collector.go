@@ -35,14 +35,14 @@ type Collector struct {
 	CsvFieldsNum        int
 	LoggerDebug         bool
 	Logger              log.Logger
-	CephBuckets         Buckets
+	CephBuckets         buckets
 	CephClient          *s3.Client
 	ParallelThreads     int
 	RetryNum            int
 	ctx                 context.Context
 }
 
-func (conf *Collector) SetDefaults() {
+func (conf *Collector) setDefaults() {
 	conf.DisableSSL = false
 	conf.AwsRegion = "us-east-1"
 }
@@ -56,7 +56,7 @@ func (c *Collector) createCephClient() error {
 	if err := c.loadCredentials(); err != nil {
 		level.Warn(c.Logger).Log("msg", "error load Ceph credentials", "error", err.Error())
 		level.Warn(c.Logger).Log("msg", "set defaults")
-		c.SetDefaults()
+		c.setDefaults()
 	}
 
 	level.Debug(c.Logger).Log("msg", "create Ceph client")
@@ -107,12 +107,14 @@ func (c *Collector) loadCephConfigFile(f string) error {
 	level.Debug(c.Logger).Log("msg", "load Ceph configuration from file", "file", f)
 
 	if err := loadYamlFile(f, &c.CephBuckets, c.Logger); err != nil {
-		level.Info(c.Logger).Log("msg", "Ceph configuration is blank")
+		c.CephBuckets = make(buckets)
+		level.Debug(c.Logger).Log("msg", "Ceph configuration is blank")
 
+		return err
 	}
 
 	// filter loaded configuration
-	cfgTemp := make(Buckets)
+	cfgTemp := make(buckets)
 
 	for bucketName, bucket := range c.CephBuckets {
 		if err := checkBucketName(bucketName); err != nil {
@@ -250,7 +252,7 @@ func (c *Collector) loadCephConfigFromServer() error {
 
 	bucketsNum := len(cephBucketsList.Buckets)
 	// init Buckets map
-	c.CephBuckets = make(Buckets)
+	c.CephBuckets = make(buckets)
 	bucketsCh := make(chan types.Bucket, bucketsNum)
 	resultsCh := make(chan Bucket, bucketsNum)
 
@@ -289,7 +291,7 @@ func (c *Collector) loadCephConfigFromServer() error {
 	return err
 }
 
-func (c *Collector) bucketCollector(wg *sync.WaitGroup, id int, buckets <-chan types.Bucket, results chan<- Bucket) {
+func (c *Collector) bucketCollector(wg *sync.WaitGroup, id int, cephBuckets <-chan types.Bucket, results chan<- Bucket) {
 	defer wg.Done()
 
 	startTime := time.Now()
@@ -297,8 +299,8 @@ func (c *Collector) bucketCollector(wg *sync.WaitGroup, id int, buckets <-chan t
 
 	level.Debug(c.Logger).Log("msg", "bucket collector started", "id", collectorName)
 
-	// read buckets as 'types.Bucket' type from channel
-	for cephBucket := range buckets {
+	// read cephBuckets as 'types.Bucket' type from channel
+	for cephBucket := range cephBuckets {
 		level.Debug(c.Logger).Log("msg", "get bucket details", "id", collectorName, "bucket", cephBucket.Name)
 		// get bucket map as 'Bucket' type
 		b := getBucketDetailsToMap(cephBucket, c)
