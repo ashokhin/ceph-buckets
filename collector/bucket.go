@@ -25,7 +25,7 @@ const (
 		* Bucket names cannot be formatted as IP address.
 		* Bucket names can be between 3 and 63 characters long.
 		* Bucket names must not contain uppercase characters or underscores.
-		* Bucket names must start with a lowercase letter or number.
+		* Bucket names must start and end with a lowercase letter or number.
 `
 
 	// See doc about BucketPolicyVersion https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_version.html
@@ -34,35 +34,29 @@ const (
 
 var (
 	bucketPolicyWriteActions = []string{
-		"s3:GetAccelerateConfiguration",
-		"s3:GetBucketAcl",
-		"s3:GetBucketCORS",
-		"s3:GetBucketLocation",
-		"s3:GetBucketLogging",
-		"s3:GetBucketNotification",
-		"s3:GetBucketPolicy",
-		"s3:GetBucketRequestPayment",
-		"s3:GetBucketTagging",
-		"s3:GetBucketVersioning",
-		"s3:GetBucketWebsite",
-		"s3:GetLifecycleConfiguration",
-		"s3:GetObjectAcl",
-		"s3:GetObject",
-		"s3:GetObjectTorrent",
-		"s3:GetObjectVersionAcl",
-		"s3:GetObjectVersion",
-		"s3:GetObjectVersionTorrent",
-		"s3:GetReplicationConfiguration",
-		"s3:ListAllMyBuckets",
-		"s3:ListBucketMultipartUploads",
-		"s3:ListBucket",
-		"s3:ListBucketVersions",
-		"s3:ListMultipartUploadParts",
+		"s3:AbortMultipartUpload",
+		"s3:CreateBucket",
+		"s3:DeleteBucket",
+		"s3:DeleteBucketPolicy",
+		"s3:DeleteBucketWebsite",
 		"s3:DeleteObject",
 		"s3:DeleteObjectVersion",
-		"s3:PutObjectAcl",
+		"s3:DeleteReplicationConfiguration",
+		"s3:PutAccelerateConfiguration",
+		"s3:PutBucketAcl",
+		"s3:PutBucketCORS",
+		"s3:PutBucketLogging",
+		"s3:PutBucketNotification",
+		"s3:PutBucketPolicy",
+		"s3:PutBucketRequestPayment",
+		"s3:PutBucketTagging",
+		"s3:PutBucketVersioning",
+		"s3:PutBucketWebsite",
+		"s3:PutLifecycleConfiguration",
 		"s3:PutObject",
+		"s3:PutObjectAcl",
 		"s3:PutObjectVersionAcl",
+		"s3:PutReplicationConfiguration",
 		"s3:RestoreObject",
 	}
 
@@ -79,16 +73,16 @@ var (
 		"s3:GetBucketVersioning",
 		"s3:GetBucketWebsite",
 		"s3:GetLifecycleConfiguration",
-		"s3:GetObjectAcl",
 		"s3:GetObject",
+		"s3:GetObjectAcl",
 		"s3:GetObjectTorrent",
-		"s3:GetObjectVersionAcl",
 		"s3:GetObjectVersion",
+		"s3:GetObjectVersionAcl",
 		"s3:GetObjectVersionTorrent",
 		"s3:GetReplicationConfiguration",
 		"s3:ListAllMyBuckets",
-		"s3:ListBucketMultipartUploads",
 		"s3:ListBucket",
+		"s3:ListBucketMultipartUploads",
 		"s3:ListBucketVersions",
 		"s3:ListMultipartUploadParts",
 	}
@@ -156,13 +150,125 @@ type s3ListBucketsAPI interface {
 		optFns ...func(*s3.Options)) (*s3.ListBucketsOutput, error)
 }
 
-func (b *Bucket) getBucketAcl(c *Collector) error {
-	var err error
+type s3GetBucketAclAPI interface {
+	GetBucketAcl(ctx context.Context,
+		params *s3.GetBucketAclInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketAclOutput, error)
+}
 
-	aclResult, err := getBucketAcl(c.ctx, c.CephClient, &s3.GetBucketAclInput{
-		Bucket: &b.name,
-	})
+type s3GetBucketPolicyAPI interface {
+	GetBucketPolicy(ctx context.Context,
+		params *s3.GetBucketPolicyInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketPolicyOutput, error)
+}
 
+type s3GetBucketLfcAPI interface {
+	GetBucketLifecycleConfiguration(ctx context.Context,
+		params *s3.GetBucketLifecycleConfigurationInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketLifecycleConfigurationOutput, error)
+}
+
+type s3GetBucketVerAPI interface {
+	GetBucketVersioning(ctx context.Context,
+		params *s3.GetBucketVersioningInput,
+		optFns ...func(*s3.Options)) (*s3.GetBucketVersioningOutput, error)
+}
+
+type s3CreateBucketAPI interface {
+	CreateBucket(ctx context.Context,
+		params *s3.CreateBucketInput,
+		optFns ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+}
+
+type s3DeleteBucketLifecycleAPI interface {
+	DeleteBucketLifecycle(ctx context.Context,
+		params *s3.DeleteBucketLifecycleInput,
+		optFns ...func(*s3.Options)) (*s3.DeleteBucketLifecycleOutput, error)
+}
+
+type s3DeleteBucketPolicyAPI interface {
+	DeleteBucketPolicy(ctx context.Context,
+		params *s3.DeleteBucketPolicyInput,
+		optFns ...func(*s3.Options)) (*s3.DeleteBucketPolicyOutput, error)
+}
+
+type s3PutBucketVerAPI interface {
+	PutBucketVersioning(ctx context.Context,
+		params *s3.PutBucketVersioningInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketVersioningOutput, error)
+}
+
+// bucket ACL not supported yet in Ceph RGW S3
+type s3PutBucketAclAPI interface {
+	PutBucketAcl(ctx context.Context,
+		params *s3.PutBucketAclInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketAclOutput, error)
+}
+
+type s3PutBucketPolicyAPI interface {
+	PutBucketPolicy(ctx context.Context,
+		params *s3.PutBucketPolicyInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketPolicyOutput, error)
+}
+
+type s3PutBucketLifecycleConfigurationAPI interface {
+	PutBucketLifecycleConfiguration(ctx context.Context,
+		params *s3.PutBucketLifecycleConfigurationInput,
+		optFns ...func(*s3.Options)) (*s3.PutBucketLifecycleConfigurationOutput, error)
+}
+
+func listBuckets(c context.Context, api s3ListBucketsAPI, input *s3.ListBucketsInput) (*s3.ListBucketsOutput, error) {
+	return api.ListBuckets(c, input)
+}
+
+func getBucketAcl(c context.Context, api s3GetBucketAclAPI, input *s3.GetBucketAclInput) (*s3.GetBucketAclOutput, error) {
+	return api.GetBucketAcl(c, input)
+}
+
+func getBucketPolicy(c context.Context, api s3GetBucketPolicyAPI, input *s3.GetBucketPolicyInput) (*s3.GetBucketPolicyOutput, error) {
+	return api.GetBucketPolicy(c, input)
+}
+
+func getBucketLifecycleConfiguration(c context.Context, api s3GetBucketLfcAPI, input *s3.GetBucketLifecycleConfigurationInput) (*s3.GetBucketLifecycleConfigurationOutput, error) {
+	return api.GetBucketLifecycleConfiguration(c, input)
+}
+
+func getBucketVersioning(c context.Context, api s3GetBucketVerAPI, input *s3.GetBucketVersioningInput) (*s3.GetBucketVersioningOutput, error) {
+	return api.GetBucketVersioning(c, input)
+}
+
+func createBucket(c context.Context, api s3CreateBucketAPI, input *s3.CreateBucketInput) (*s3.CreateBucketOutput, error) {
+	return api.CreateBucket(c, input)
+}
+
+func deleteBucketLifecycle(c context.Context, api s3DeleteBucketLifecycleAPI, input *s3.DeleteBucketLifecycleInput) (*s3.DeleteBucketLifecycleOutput, error) {
+	return api.DeleteBucketLifecycle(c, input)
+}
+
+func deleteBucketPolicy(c context.Context, api s3DeleteBucketPolicyAPI, input *s3.DeleteBucketPolicyInput) (*s3.DeleteBucketPolicyOutput, error) {
+	return api.DeleteBucketPolicy(c, input)
+}
+
+func putBucketVersioning(c context.Context, api s3PutBucketVerAPI, input *s3.PutBucketVersioningInput) (*s3.PutBucketVersioningOutput, error) {
+	return api.PutBucketVersioning(c, input)
+}
+
+// bucket ACL not supported yet in Ceph RGW S3
+func putBucketAcl(c context.Context, api s3PutBucketAclAPI, input *s3.PutBucketAclInput) (*s3.PutBucketAclOutput, error) {
+	return api.PutBucketAcl(c, input)
+}
+
+func putBucketPolicy(c context.Context, api s3PutBucketPolicyAPI, input *s3.PutBucketPolicyInput) (*s3.PutBucketPolicyOutput, error) {
+	return api.PutBucketPolicy(c, input)
+}
+
+func putBucketLifecycleConfiguration(c context.Context, api s3PutBucketLifecycleConfigurationAPI, input *s3.PutBucketLifecycleConfigurationInput) (*s3.PutBucketLifecycleConfigurationOutput, error) {
+	return api.PutBucketLifecycleConfiguration(c, input)
+}
+
+// Get ACLs for bucket
+// Warning: Bucket ACLs not supported yet in Ceph
+func (b *Bucket) parseBucketAcl(c *Collector, aclResult *s3.GetBucketAclOutput, err error) {
 	if err != nil {
 		level.Error(c.Logger).Log("msg", "error get bucket ACL", "bucket", b.name, "error", err.Error())
 
@@ -186,18 +292,23 @@ func (b *Bucket) getBucketAcl(c *Collector) error {
 		b.Acl.Owner.DisplayName = *aclResult.Owner.DisplayName
 		b.Acl.Owner.Id = *aclResult.Owner.ID
 	}
+}
+
+// Get ACLs for bucket
+// Warning: Bucket ACLs not supported yet in Ceph
+func (b *Bucket) getBucketAcl(c *Collector) error {
+	var err error
+
+	aclResult, err := getBucketAcl(c.ctx, c.CephClient, &s3.GetBucketAclInput{
+		Bucket: &b.name,
+	})
+
+	b.parseBucketAcl(c, aclResult, err)
 
 	return err
 }
 
-func (b *Bucket) getBucketPolicy(c *Collector) error {
-	var err error
-
-	// Rewrite ACL rules from bucket policies
-	polResult, err := getBucketPolicy(c.ctx, c.CephClient, &s3.GetBucketPolicyInput{
-		Bucket: &b.name,
-	})
-
+func (b *Bucket) parseBucketPolicy(c *Collector, polResult *s3.GetBucketPolicyOutput, err error) error {
 	if err != nil {
 		var ae smithy.APIError
 
@@ -252,14 +363,20 @@ func (b *Bucket) getBucketPolicy(c *Collector) error {
 	return err
 }
 
-func (b *Bucket) getBucketVersioning(bucket types.Bucket, c *Collector) error {
+// Get bucket's policy and rewrite ACL rules from bucket policies
+func (b *Bucket) getBucketPolicy(c *Collector) error {
 	var err error
 
-	// Get Bucket versioning status
-	vResult, err := getBucketVersioning(c.ctx, c.CephClient, &s3.GetBucketVersioningInput{
-		Bucket: aws.String(*bucket.Name),
+	polResult, err := getBucketPolicy(c.ctx, c.CephClient, &s3.GetBucketPolicyInput{
+		Bucket: &b.name,
 	})
 
+	err = b.parseBucketPolicy(c, polResult, err)
+
+	return err
+}
+
+func (b *Bucket) parseBucketVersioning(c *Collector, vResult *s3.GetBucketVersioningOutput, err error) {
 	if err != nil {
 		level.Error(c.Logger).Log("msg", "error get versioning configuration", "error", err.Error())
 
@@ -271,33 +388,39 @@ func (b *Bucket) getBucketVersioning(bucket types.Bucket, c *Collector) error {
 			b.Versioning = "suspended"
 		}
 	}
+}
+
+// Get bucket's versioning status
+func (b *Bucket) getBucketVersioning(c *Collector) error {
+	var err error
+
+	// Get Bucket versioning status
+	vResult, err := getBucketVersioning(c.ctx, c.CephClient, &s3.GetBucketVersioningInput{
+		Bucket: aws.String(b.name),
+	})
+
+	b.parseBucketVersioning(c, vResult, err)
 
 	return err
 }
 
-func (b *Bucket) getBucketLifecycleConfiguration(bucket types.Bucket, c *Collector) error {
-	var err error
-
-	lfResult, err := getBucketLifecycleConfiguration(c.ctx, c.CephClient, &s3.GetBucketLifecycleConfigurationInput{
-		Bucket: aws.String(*bucket.Name),
-	})
-
+func (b *Bucket) parseBucketLifecycleConfiguration(c *Collector, lfResult *s3.GetBucketLifecycleConfigurationOutput, err error) {
 	if err != nil {
 		var ae smithy.APIError
 
 		if errors.As(err, &ae) {
 			if ae.ErrorCode() == "NoSuchLifecycleConfiguration" {
-				level.Debug(c.Logger).Log("msg", "doesn't have Lifecycle configuration", "bucket", *bucket.Name)
+				level.Debug(c.Logger).Log("msg", "doesn't have Lifecycle configuration", "bucket", b.name)
 			} else {
 				level.Error(c.Logger).Log("msg", "API error", "code", ae.ErrorCode(), "message", ae.ErrorMessage(), "error", ae.ErrorFault().String())
 			}
 		} else {
-			level.Error(c.Logger).Log("msg", "error get bucket lifecycle", "bucket", *bucket.Name, "error", err.Error())
+			level.Error(c.Logger).Log("msg", "error get bucket lifecycle", "bucket", b.name, "error", err.Error())
 		}
 	}
 
 	if lfResult != nil {
-		level.Debug(c.Logger).Log("msg", "show lifecycle configuration", "bucket", *bucket.Name, "value", fmt.Sprintf("%+v", *lfResult))
+		level.Debug(c.Logger).Log("msg", "show lifecycle configuration", "bucket", b.name, "value", fmt.Sprintf("%+v", *lfResult))
 
 		for _, r := range lfResult.Rules {
 			var lfr LifecycleRule
@@ -312,7 +435,7 @@ func (b *Bucket) getBucketLifecycleConfiguration(bucket types.Bucket, c *Collect
 						lfr.Prefix = *r.Prefix
 					}
 				} else {
-					level.Error(c.Logger).Log("msg", "lifecycle rule of filter type not supported!", "bucket", *bucket.Name, "name", *r.ID, "type", fmt.Sprintf("%T", r.Filter))
+					level.Error(c.Logger).Log("msg", "lifecycle rule of filter type not supported!", "bucket", b.name, "name", *r.ID, "type", fmt.Sprintf("%T", r.Filter))
 				}
 			}
 
@@ -332,17 +455,28 @@ func (b *Bucket) getBucketLifecycleConfiguration(bucket types.Bucket, c *Collect
 			b.LifecycleRules = append(b.LifecycleRules, lfr)
 		}
 	}
+}
+
+// Get bucket's Lifecycle Configuration
+func (b *Bucket) getBucketLifecycleConfiguration(c *Collector) error {
+	var err error
+
+	lfResult, err := getBucketLifecycleConfiguration(c.ctx, c.CephClient, &s3.GetBucketLifecycleConfigurationInput{
+		Bucket: aws.String(b.name),
+	})
+
+	b.parseBucketLifecycleConfiguration(c, lfResult, err)
 
 	return err
 }
 
+// Apply bucket's policy
 func (b *Bucket) applyBucketPolicy(c *Collector) error {
 	var err error
 	var retryCount int
 	var out interface{}
 
-	level.Info(c.Logger).Log("msg", "update bucket policy", "bucket", b.name)
-	level.Debug(c.Logger).Log("msg", "generate bucket policy", "bucket", b.name)
+	level.Debug(c.Logger).Log("msg", "update bucket policy", "bucket", b.name)
 
 	// Create Bucket policy JSON
 	BucketPolicy, err := b.createBucketPolicy(c)
@@ -353,7 +487,7 @@ func (b *Bucket) applyBucketPolicy(c *Collector) error {
 		return err
 	}
 
-	level.Info(c.Logger).Log("msg", "show bucket policy", "bucket", b.name, "value", fmt.Sprintf("%+v", BucketPolicy))
+	level.Debug(c.Logger).Log("msg", "show bucket policy", "bucket", b.name, "value", fmt.Sprintf("%+v", BucketPolicy))
 
 	retryCount = c.RetryNum
 
@@ -395,9 +529,69 @@ func (b *Bucket) applyBucketPolicy(c *Collector) error {
 		}
 	}
 
-	return err
+	return nil
 }
 
+// Fill bucket's policy array
+func (b *Bucket) fillBucketPolicy(op string, grants []string, bpsa []BucketPolicyStatement, c *Collector) []BucketPolicyStatement {
+
+	var (
+		bps              BucketPolicyStatement
+		actionPrincipals []string
+		policyActions    []string
+		fullName         string
+	)
+
+	switch op {
+	case "full":
+		policyActions = []string{
+			"s3:*",
+		}
+		fullName = "FULL_CONTROL"
+	case "read":
+		policyActions = bucketPolicyReadActions
+		fullName = "READ"
+	case "write":
+		policyActions = bucketPolicyWriteActions
+		policyActions = append(policyActions, bucketPolicyReadActions...)
+		fullName = "WRITE"
+	}
+
+	for _, u := range grants {
+		switch s := u; {
+		case s == b.Acl.Owner.Id:
+			level.Debug(c.Logger).Log("msg", "skip bucket owner", "value", s)
+		case strings.Contains(s, ":"):
+			actionPrincipals = append(actionPrincipals, fmt.Sprintf("arn:aws:iam:::user/%s", u))
+		default:
+			actionPrincipals = append(actionPrincipals, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
+		}
+	}
+
+	bps = BucketPolicyStatement{
+		Sid:    fmt.Sprintf("%s-%s-%v", b.name, op, time.Now().UnixNano()),
+		Action: policyActions,
+		Effect: "Allow",
+		Resource: []string{
+			fmt.Sprintf("arn:aws:s3:::%s", b.name),
+		},
+		Principal: BucketPolicyPrincipal{
+			PrincipalType: actionPrincipals,
+		},
+	}
+
+	if len(bps.Principal.PrincipalType) > 0 {
+		bpsa = append(bpsa, bps)
+
+		return bpsa
+	}
+
+	level.Debug(c.Logger).Log("msg", "bucket policy statement doesn't have principals. Skip. Show bucket policy template", "policy", fullName, "bucket", b.name, "value", fmt.Sprintf("%+v", bps))
+
+	return bpsa
+}
+
+// Create bucket's policy JSON string
 func (b *Bucket) createBucketPolicy(c *Collector) (string, error) {
 	var (
 		err  error
@@ -421,7 +615,7 @@ func (b *Bucket) createBucketPolicy(c *Collector) (string, error) {
 	}
 
 	if len(bpsa) == 0 {
-
+		err = errors.New("bucket policy is blank")
 		return "", err
 	}
 
@@ -436,65 +630,7 @@ func (b *Bucket) createBucketPolicy(c *Collector) (string, error) {
 	return string(j), err
 }
 
-func (b *Bucket) fillBucketPolicy(op string, grants []string, bpsa []BucketPolicyStatement, c *Collector) []BucketPolicyStatement {
-
-	var (
-		bps       BucketPolicyStatement
-		pta       []string
-		polAction []string
-		fullName  string
-	)
-
-	switch op {
-	case "full":
-		polAction = []string{
-			"s3:*",
-		}
-		fullName = "FULL_CONTROL"
-	case "read":
-		polAction = bucketPolicyReadActions
-		fullName = "READ"
-	case "write":
-		polAction = bucketPolicyWriteActions
-		fullName = "WRITE"
-	}
-
-	for _, u := range grants {
-		switch s := u; {
-		case s == b.Acl.Owner.Id:
-			level.Debug(c.Logger).Log("msg", "skip bucket owner", "value", s)
-		case strings.Contains(s, ":"):
-			pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s", u))
-		default:
-			pta = append(pta, fmt.Sprintf("arn:aws:iam:::user/%s:%s", b.Acl.Owner.Id, u))
-
-		}
-
-	}
-
-	bps = BucketPolicyStatement{
-		Sid:    fmt.Sprintf("%s-%s-%v", b.name, op, time.Now().UnixNano()),
-		Action: polAction,
-		Effect: "Allow",
-		Resource: []string{
-			fmt.Sprintf("arn:aws:s3:::%s", b.name),
-		},
-		Principal: BucketPolicyPrincipal{
-			PrincipalType: pta,
-		},
-	}
-
-	if len(bps.Principal.PrincipalType) > 0 {
-		bpsa = append(bpsa, bps)
-		return bpsa
-	} else {
-		level.Debug(c.Logger).Log("msg", "bucket policy statement didn't have principals. Skip. Show bucket policy template", "policy", fullName, "bucket", b.name, "value", fmt.Sprintf("%+v", bps))
-	}
-
-	return bpsa
-}
-
-func (b buckets) HasKey(k string) bool {
+func (b buckets) hasKey(k string) bool {
 	_, ok := b[k]
 
 	return ok
@@ -509,15 +645,14 @@ func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
 
 	for k, v := range fc {
 
-		if sc.HasKey(k) {
+		if sc.hasKey(k) {
 			level.Debug(logger).Log("msg", "bucket already exist on server", "bucket", k)
 			level.Debug(logger).Log("msg", "add server struct to result configuration", "value", fmt.Sprintf("%+v", sc[k]))
 
 			newCfgBucket := sc[k]
 
 			// Compare ACLs
-			// Bucket ACL not supported yet in Ceph RGW S3
-			if !aclEqual(&v, sc[k], &k, logger) {
+			if !aclIsEqual(v, sc[k], k, logger) {
 				level.Debug(logger).Log("msg", "update ACL for bucket", "bucket", k)
 
 				newCfgBucket.Acl.Grants.FullControl = v.Acl.Grants.FullControl
@@ -539,7 +674,7 @@ func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
 
 			// Compare Lifecycle Configurations
 			if len(sc[k].LifecycleRules) > 0 || len(v.LifecycleRules) > 0 {
-				if !lfcIsEqual(&v, sc[k], &k, logger) {
+				if !lfcIsEqual(v.LifecycleRules, sc[k].LifecycleRules, k, logger) {
 					level.Debug(logger).Log("msg", "update lifecycle configuration for bucket", "bucket", k)
 
 					newCfgBucket.LifecycleRules = v.LifecycleRules
@@ -614,17 +749,16 @@ func (b *Bucket) applyBucketConfig(c *Collector) error {
 		retryCount = c.RetryNum
 
 		for retryCount > 0 {
-			input := &s3.PutBucketVersioningInput{
+
+			level.Debug(c.Logger).Log("msg", "apply versioning", "bucket", b.name)
+
+			// Apply versioning
+			out, err := putBucketVersioning(b.ctx, c.CephClient, &s3.PutBucketVersioningInput{
 				Bucket: aws.String(b.name),
 				VersioningConfiguration: &types.VersioningConfiguration{
 					Status: status,
 				},
-			}
-
-			level.Debug(c.Logger).Log("msg", "apply versioning", "bucket", b.name, "value", *input)
-
-			// Apply versioning
-			out, err := putBucketVersioning(b.ctx, c.CephClient, input)
+			})
 
 			retryCount--
 
@@ -832,10 +966,8 @@ func checkBucketName(b string) error {
 func getBucketDetailsToMap(cephBucket types.Bucket, c *Collector) Bucket {
 	var b Bucket
 
-	b.name = checkBucketNamePostfix(cephBucket, c.BucketsPostfix, c.Logger)
-
-	// create bucket name with postfix
-	level.Debug(c.Logger).Log("msg", "create bucket name", "bucket", b.name)
+	// set bucket name as is
+	b.name = *cephBucket.Name
 
 	// Get Bucket ACL
 	// Bucket ACL not supported yet in Ceph RGW S3 so we use only owner now
@@ -855,41 +987,50 @@ func getBucketDetailsToMap(cephBucket types.Bucket, c *Collector) Bucket {
 	// Get bucket versioning
 	level.Debug(c.Logger).Log("msg", "get bucket versioning", "bucket", b.name)
 
-	if err := b.getBucketVersioning(cephBucket, c); err != nil {
+	if err := b.getBucketVersioning(c); err != nil {
 		level.Warn(c.Logger).Log("msg", "error get bucket versioning", "bucket", b.name, "error", err.Error())
 	}
 
 	level.Debug(c.Logger).Log("msg", "show versioning status", "bucket", b.name, "value", b.Versioning)
 	level.Debug(c.Logger).Log("msg", "get bucket lifecycle", "bucket", b.name)
 
-	if err := b.getBucketLifecycleConfiguration(cephBucket, c); err != nil {
+	if err := b.getBucketLifecycleConfiguration(c); err != nil {
 		level.Debug(c.Logger).Log("msg", "error get lifecycle configuration", "bucket", b.name, "error", err.Error())
+	}
+
+	if len(c.BucketsPostfix) > 0 {
+		// create bucket name without postfix
+		level.Debug(c.Logger).Log("msg", "create bucket name without postfix", "bucket", *cephBucket.Name, "postfix", c.BucketsPostfix)
+
+		b.name = checkBucketNamePostfix(cephBucket, c)
 	}
 
 	return b
 }
 
-func checkBucketNamePostfix(bucket types.Bucket, bucketPostfix string, logger log.Logger) string {
-	var bn string
+func checkBucketNamePostfix(bucket types.Bucket, c *Collector) string {
+	var bucketName string
 
-	matchPattern := fmt.Sprintf("%s$", bucketPostfix)
+	matchPattern := fmt.Sprintf("%s$", c.BucketsPostfix)
 	re := regexp.MustCompile(matchPattern)
 
-	if len(bucketPostfix) > 0 {
+	if len(c.BucketsPostfix) > 0 {
 		if re.MatchString(*bucket.Name) {
-			level.Debug(logger).Log("msg", "bucket name have to match pattern. Rename", "bucket", *bucket.Name, "regexp", matchPattern)
+			level.Debug(c.Logger).Log("msg", "bucket name contains postfix. Rename for configuration", "bucket", *bucket.Name, "regexp postfix", matchPattern)
 
 			// Create name without postfix
-			bn = re.ReplaceAllString(*bucket.Name, "")
-			level.Debug(logger).Log("msg", "new bucket name", "value", bn)
-		} else {
-			level.Warn(logger).Log("msg", "bucket name doesn't match pattern", "bucket", *bucket.Name, "regexp", matchPattern)
+			bucketName = re.ReplaceAllString(*bucket.Name, "")
+			level.Debug(c.Logger).Log("msg", "new bucket name", "value", bucketName)
 
-			bn = *bucket.Name
+			return bucketName
+		} else {
+			level.Warn(c.Logger).Log("msg", "bucket name doesn't contain postfix", "bucket", *bucket.Name, "regexp postfix", matchPattern)
+
+			bucketName = *bucket.Name
 		}
 	} else {
-		bn = *bucket.Name
+		bucketName = *bucket.Name
 	}
 
-	return bn
+	return bucketName
 }

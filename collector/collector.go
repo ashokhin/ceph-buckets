@@ -324,7 +324,7 @@ func (c *Collector) applyCephConfig() error {
 	errGroup, errGrpContext := errgroup.WithContext(c.ctx)
 
 	for bn, b := range c.CephBuckets {
-		// Create bucket name
+		// Create bucket name with postfix
 		cephBucket := b
 		cephBucket.name = bn + c.BucketsPostfix
 		cephBucket.ctx = errGrpContext
