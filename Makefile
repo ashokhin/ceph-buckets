@@ -1,16 +1,16 @@
-GOVERSION				:= $(shell go env GOVERSION)
-GOARCH					:= $(shell go env GOARCH)
-GOOS					:= $(shell go env GOOS)
+GOVERSION	:= $(shell go env GOVERSION)
+GOARCH		:= $(shell go env GOARCH)
+GOOS			:= $(shell go env GOOS)
 
-BIN_DIR					?= $(shell pwd)/bin
-BIN_NAME				?= $(shell go env GOEXE)
+BIN_DIR		?= $(shell pwd)/bin
+BIN_NAME	?= $(shell go env GOEXE)
 
-export APP_HOST			?= $(shell hostname)
-export APP_BRANCH		?= $(shell git describe --all --contains --dirty HEAD)
+export APP_HOST				?= $(shell hostname)
+export APP_BRANCH			?= $(shell git describe --all --contains --dirty HEAD)
 export APP_REVISION		?= $(shell git rev-parse HEAD)
-export APP_ORIGIN		?= $(shell git config --local --get remote.origin.url)
+export APP_ORIGIN			?= $(shell git config --local --get remote.origin.url)
 export APP_VERSION		:= $(shell basename ${APP_BRANCH})
-export APP_USER			:= $(shell id -u --name)
+export APP_USER				:= $(shell id -u --name)
 export APP_BUILD_DATE	:= $(shell date -u '+%Y-%m-%dT%H:%M:%S,%N%:z')
 
 all: clean format vet test build
