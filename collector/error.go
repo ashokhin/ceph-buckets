@@ -49,15 +49,9 @@ func (e *errBlankString) Error() string {
 
 // directory error
 type errIsDir struct {
-	message string
-}
-
-func newIsDirError(message string) *errIsDir {
-	return &errIsDir{
-		message: message,
-	}
+	path string
 }
 
 func (e *errIsDir) Error() string {
-	return e.message
+	return fmt.Sprintf("'%s' is a directory", e.path)
 }

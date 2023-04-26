@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
-	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/iancoleman/strcase"
 )
@@ -268,30 +267,24 @@ func putBucketLifecycleConfiguration(c context.Context, api s3PutBucketLifecycle
 
 // Get ACLs for bucket
 // Warning: Bucket ACLs not supported yet in Ceph
-func (b *Bucket) parseBucketAcl(c *Collector, aclResult *s3.GetBucketAclOutput, err error) {
-	if err != nil {
-		level.Error(c.Logger).Log("msg", "error get bucket ACL", "bucket", b.name, "error", err.Error())
+func (b *Bucket) parseBucketAcl(c *Collector, aclResult *s3.GetBucketAclOutput) {
+	level.Debug(c.Logger).Log("msg", "show ACL", "bucket", b.name, "value", fmt.Sprintf("%+v", *aclResult))
 
-		b.AclType = "error"
-	} else {
-		level.Debug(c.Logger).Log("msg", "show ACL", "bucket", b.name, "value", fmt.Sprintf("%+v", *aclResult))
-
-		for _, grants := range aclResult.Grants {
-			switch gp := grants.Permission; gp {
-			case "FULL_CONTROL":
-				b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, *grants.Grantee.ID)
-			case "READ":
-				b.Acl.Grants.Read = append(b.Acl.Grants.Read, *grants.Grantee.ID)
-			case "WRITE":
-				b.Acl.Grants.Write = append(b.Acl.Grants.Write, *grants.Grantee.ID)
-			default:
-				level.Warn(c.Logger).Log("msg", "permission type unsupported. Skip permission type", "bucket", b.name, "value", grants.Permission)
-			}
+	for _, grants := range aclResult.Grants {
+		switch gp := grants.Permission; gp {
+		case "FULL_CONTROL":
+			b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, *grants.Grantee.ID)
+		case "READ":
+			b.Acl.Grants.Read = append(b.Acl.Grants.Read, *grants.Grantee.ID)
+		case "WRITE":
+			b.Acl.Grants.Write = append(b.Acl.Grants.Write, *grants.Grantee.ID)
+		default:
+			level.Warn(c.Logger).Log("msg", "permission type unsupported. Skip permission type", "bucket", b.name, "value", grants.Permission)
 		}
-
-		b.Acl.Owner.DisplayName = *aclResult.Owner.DisplayName
-		b.Acl.Owner.Id = *aclResult.Owner.ID
 	}
+
+	b.Acl.Owner.DisplayName = *aclResult.Owner.DisplayName
+	b.Acl.Owner.Id = *aclResult.Owner.ID
 }
 
 // Get ACLs for bucket
@@ -303,9 +296,17 @@ func (b *Bucket) getBucketAcl(c *Collector) error {
 		Bucket: &b.name,
 	})
 
-	b.parseBucketAcl(c, aclResult, err)
+	if err != nil {
+		level.Error(c.Logger).Log("msg", "error get bucket ACL", "bucket", b.name, "error", err.Error())
 
-	return err
+		b.AclType = "error"
+
+		return err
+	}
+
+	b.parseBucketAcl(c, aclResult)
+
+	return nil
 }
 
 func (b *Bucket) parseBucketPolicy(c *Collector, polResult *s3.GetBucketPolicyOutput, err error) error {
@@ -315,52 +316,60 @@ func (b *Bucket) parseBucketPolicy(c *Collector, polResult *s3.GetBucketPolicyOu
 		if errors.As(err, &ae) {
 			if ae.ErrorCode() == "NoSuchBucketPolicy" {
 				level.Debug(c.Logger).Log("msg", "doesn't have bucket policy", "bucket", b.name)
+
+				return nil
 			} else {
 				level.Error(c.Logger).Log("msg", "API error", "code", ae.ErrorCode(), "message", ae.ErrorMessage(), "error", ae.ErrorFault().String())
 
 				b.AclType = "error"
+
+				return err
 			}
 		} else {
 			level.Error(c.Logger).Log("msg", "error get bucket policies", "bucket", b.name, "error", err.Error())
 
 			b.AclType = "error"
+
+			return err
 		}
-	} else {
-		level.Debug(c.Logger).Log("msg", "show bucket policies", "bucket", b.name, "value", fmt.Sprintf("%+v", *polResult.Policy))
-
-		var bp BucketPolicy
-
-		err := json.Unmarshal([]byte(*polResult.Policy), &bp)
-
-		if err != nil {
-			level.Error(c.Logger).Log("msg", "error unmarshal Bucket policies", "bucket", b.name, "error", err.Error())
-
-			b.AclType = "error"
-		}
-
-		level.Debug(c.Logger).Log("msg", "show bucket policies struct", "bucket", b.name, "value", fmt.Sprintf("%+v", bp))
-
-		for _, st := range bp.Statement {
-			switch statActionArray := st.Action; {
-			case keyInArray(statActionArray, "s3:*"):
-				b.Acl.Grants.FullControl = getUsersFromPrincipalArray(st.Principal.PrincipalType)
-				// Always add owner
-				if !keyInArray(b.Acl.Grants.FullControl, b.Acl.Owner.Id) {
-					b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, b.Acl.Owner.Id)
-				}
-			case (keyInArray(statActionArray, "s3:GetObject") && !keyInArray(statActionArray, "s3:PutObject")):
-				b.Acl.Grants.Read = getUsersFromPrincipalArray(st.Principal.PrincipalType)
-			case keyInArray(statActionArray, "s3:PutObject"):
-				b.Acl.Grants.Write = getUsersFromPrincipalArray(st.Principal.PrincipalType)
-			default:
-				level.Error(c.Logger).Log("msg", "bucket policy statement", "bucket", b.name, "value", statActionArray, "error", "action type unsupported")
-			}
-		}
-
-		level.Debug(c.Logger).Log("msg", "ACL updated from bucket policies", "bucket", b.name, "value", fmt.Sprintf("%+v", b.Acl))
 	}
 
-	return err
+	level.Debug(c.Logger).Log("msg", "show bucket policies", "bucket", b.name, "value", fmt.Sprintf("%+v", *polResult.Policy))
+
+	var bp BucketPolicy
+
+	err = json.Unmarshal([]byte(*polResult.Policy), &bp)
+
+	if err != nil {
+		level.Error(c.Logger).Log("msg", "error unmarshal Bucket policies", "bucket", b.name, "error", err.Error())
+
+		b.AclType = "error"
+
+		return err
+	}
+
+	level.Debug(c.Logger).Log("msg", "show bucket policies struct", "bucket", b.name, "value", fmt.Sprintf("%+v", bp))
+
+	for _, st := range bp.Statement {
+		switch statActionArray := st.Action; {
+		case keyInArray(statActionArray, "s3:*"):
+			b.Acl.Grants.FullControl = getUsersFromPrincipalArray(st.Principal.PrincipalType)
+			// Always add owner
+			if !keyInArray(b.Acl.Grants.FullControl, b.Acl.Owner.Id) {
+				b.Acl.Grants.FullControl = append(b.Acl.Grants.FullControl, b.Acl.Owner.Id)
+			}
+		case (keyInArray(statActionArray, "s3:GetObject") && !keyInArray(statActionArray, "s3:PutObject")):
+			b.Acl.Grants.Read = getUsersFromPrincipalArray(st.Principal.PrincipalType)
+		case keyInArray(statActionArray, "s3:PutObject"):
+			b.Acl.Grants.Write = getUsersFromPrincipalArray(st.Principal.PrincipalType)
+		default:
+			level.Error(c.Logger).Log("msg", "bucket policy statement error", "bucket", b.name, "value", fmt.Sprintf("%+v", statActionArray), "error", "action type unsupported")
+		}
+	}
+
+	level.Debug(c.Logger).Log("msg", "ACL updated from bucket policies", "bucket", b.name, "value", fmt.Sprintf("%+v", b.Acl))
+
+	return nil
 }
 
 // Get bucket's policy and rewrite ACL rules from bucket policies
@@ -376,18 +385,13 @@ func (b *Bucket) getBucketPolicy(c *Collector) error {
 	return err
 }
 
-func (b *Bucket) parseBucketVersioning(c *Collector, vResult *s3.GetBucketVersioningOutput, err error) {
-	if err != nil {
-		level.Error(c.Logger).Log("msg", "error get versioning configuration", "error", err.Error())
-
-		b.VersioningType = "error"
+func (b *Bucket) parseBucketVersioning(c *Collector, vResult *s3.GetBucketVersioningOutput) {
+	if len(vResult.Status) > 0 {
+		b.Versioning = strings.ToLower(string(vResult.Status))
 	} else {
-		if len(vResult.Status) > 0 {
-			b.Versioning = strings.ToLower(string(vResult.Status))
-		} else {
-			b.Versioning = "suspended"
-		}
+		b.Versioning = "suspended"
 	}
+
 }
 
 // Get bucket's versioning status
@@ -399,9 +403,17 @@ func (b *Bucket) getBucketVersioning(c *Collector) error {
 		Bucket: aws.String(b.name),
 	})
 
-	b.parseBucketVersioning(c, vResult, err)
+	if err != nil {
+		level.Error(c.Logger).Log("msg", "error get versioning configuration", "error", err.Error())
 
-	return err
+		b.VersioningType = "error"
+
+		return err
+	}
+
+	b.parseBucketVersioning(c, vResult)
+
+	return nil
 }
 
 func (b *Bucket) parseBucketLifecycleConfiguration(c *Collector, lfResult *s3.GetBucketLifecycleConfigurationOutput, err error) {
@@ -411,50 +423,58 @@ func (b *Bucket) parseBucketLifecycleConfiguration(c *Collector, lfResult *s3.Ge
 		if errors.As(err, &ae) {
 			if ae.ErrorCode() == "NoSuchLifecycleConfiguration" {
 				level.Debug(c.Logger).Log("msg", "doesn't have Lifecycle configuration", "bucket", b.name)
+
+				return
 			} else {
 				level.Error(c.Logger).Log("msg", "API error", "code", ae.ErrorCode(), "message", ae.ErrorMessage(), "error", ae.ErrorFault().String())
+
+				return
 			}
 		} else {
 			level.Error(c.Logger).Log("msg", "error get bucket lifecycle", "bucket", b.name, "error", err.Error())
+
+			return
 		}
 	}
 
-	if lfResult != nil {
-		level.Debug(c.Logger).Log("msg", "show lifecycle configuration", "bucket", b.name, "value", fmt.Sprintf("%+v", *lfResult))
+	if lfResult == nil {
+		return
+	}
 
-		for _, r := range lfResult.Rules {
-			var lfr LifecycleRule
+	level.Debug(c.Logger).Log("msg", "show lifecycle configuration", "bucket", b.name, "value", fmt.Sprintf("%+v", *lfResult))
 
-			if r.Filter != nil {
-				if _, ok := r.Filter.(*types.LifecycleRuleFilterMemberPrefix); ok {
-					if strings.Contains(fmt.Sprintf("%+v", r), "Filter") {
-						// New version of Ceph return "Prefix" inside struct "Filter"
-						lfr.Prefix = r.Filter.(*types.LifecycleRuleFilterMemberPrefix).Value
-					} else if strings.Contains(fmt.Sprintf("%+v", r), "Prefix") {
-						// Old version of Ceph return "Prefix" inside struct "LifecycleRule"
-						lfr.Prefix = *r.Prefix
-					}
-				} else {
-					level.Error(c.Logger).Log("msg", "lifecycle rule of filter type not supported!", "bucket", b.name, "name", *r.ID, "type", fmt.Sprintf("%T", r.Filter))
-				}
-			}
+	for _, r := range lfResult.Rules {
+		var lfr LifecycleRule
 
-			lfr.ExpirationDays = r.Expiration.Days
-			lfr.Id = *r.ID
-
-			if r.NoncurrentVersionExpiration != nil {
-
-				lfr.NonCurrentDays = r.NoncurrentVersionExpiration.NoncurrentDays
+		if r.Filter != nil {
+			// New version of Ceph return "Prefix" inside struct "Filter"
+			if _, ok := r.Filter.(*types.LifecycleRuleFilterMemberPrefix); ok {
+				lfr.Prefix = r.Filter.(*types.LifecycleRuleFilterMemberPrefix).Value
 			} else {
-
-				lfr.NonCurrentDays = -1
+				level.Error(c.Logger).Log("msg", "lifecycle rule of filter type not supported!", "bucket", b.name, "name", *r.ID, "type", fmt.Sprintf("%T", r.Filter))
 			}
 
-			lfr.Status = strings.ToLower(string(r.Status))
-
-			b.LifecycleRules = append(b.LifecycleRules, lfr)
+		} else if r.Prefix != nil {
+			// Old version of Ceph return "Prefix" inside struct "LifecycleRule"
+			lfr.Prefix = *r.Prefix
 		}
+
+		lfr.ExpirationDays = r.Expiration.Days
+		lfr.Id = *r.ID
+
+		if r.NoncurrentVersionExpiration != nil {
+
+			lfr.NonCurrentDays = r.NoncurrentVersionExpiration.NoncurrentDays
+		} else {
+
+			lfr.NonCurrentDays = -1
+		}
+
+		lfr.Status = strings.ToLower(string(r.Status))
+
+		b.LifecycleRules = append(b.LifecycleRules, lfr)
 	}
+
 }
 
 // Get bucket's Lifecycle Configuration
@@ -616,6 +636,7 @@ func (b *Bucket) createBucketPolicy(c *Collector) (string, error) {
 
 	if len(bpsa) == 0 {
 		err = errors.New("bucket policy is blank")
+
 		return "", err
 	}
 
@@ -636,24 +657,24 @@ func (b buckets) hasKey(k string) bool {
 	return ok
 }
 
-func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
+func compareBuckets(fc buckets, sc buckets, c *Collector) (buckets, bool) {
 	var bucketsUpdated bool
 
 	newBuckets := make(buckets)
 
-	level.Debug(logger).Log("msg", "compare local and server's configurations")
+	level.Debug(c.Logger).Log("msg", "compare local and server's configurations")
 
 	for k, v := range fc {
 
 		if sc.hasKey(k) {
-			level.Debug(logger).Log("msg", "bucket already exist on server", "bucket", k)
-			level.Debug(logger).Log("msg", "add server struct to result configuration", "value", fmt.Sprintf("%+v", sc[k]))
+			level.Debug(c.Logger).Log("msg", "bucket already exist on server", "bucket", k)
+			level.Debug(c.Logger).Log("msg", "add server struct to result configuration", "value", fmt.Sprintf("%+v", sc[k]))
 
 			newCfgBucket := sc[k]
 
 			// Compare ACLs
-			if !aclIsEqual(v, sc[k], k, logger) {
-				level.Debug(logger).Log("msg", "update ACL for bucket", "bucket", k)
+			if !aclIsEqual(v, sc[k], k, c.Logger) {
+				level.Debug(c.Logger).Log("msg", "update ACL for bucket", "bucket", k)
 
 				newCfgBucket.Acl.Grants.FullControl = v.Acl.Grants.FullControl
 				newCfgBucket.Acl.Grants.Read = v.Acl.Grants.Read
@@ -664,8 +685,8 @@ func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
 
 			// Compare versioning
 			if sc[k].Versioning != v.Versioning {
-				level.Debug(logger).Log("msg", "versioning changed", "value", v.Versioning)
-				level.Debug(logger).Log("msg", "update versioning configuration for bucket", "bucket", k)
+				level.Debug(c.Logger).Log("msg", "versioning changed", "value", v.Versioning)
+				level.Debug(c.Logger).Log("msg", "update versioning configuration for bucket", "bucket", k)
 
 				newCfgBucket.Versioning = v.Versioning
 				newCfgBucket.VersioningType = "updated"
@@ -674,8 +695,8 @@ func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
 
 			// Compare Lifecycle Configurations
 			if len(sc[k].LifecycleRules) > 0 || len(v.LifecycleRules) > 0 {
-				if !lfcIsEqual(v.LifecycleRules, sc[k].LifecycleRules, k, logger) {
-					level.Debug(logger).Log("msg", "update lifecycle configuration for bucket", "bucket", k)
+				if !lfcIsEqual(v.LifecycleRules, sc[k].LifecycleRules, k, c.Logger) {
+					level.Debug(c.Logger).Log("msg", "update lifecycle configuration for bucket", "bucket", k)
 
 					newCfgBucket.LifecycleRules = v.LifecycleRules
 					newCfgBucket.LifecycleType = "updated"
@@ -685,13 +706,13 @@ func compareBuckets(fc buckets, sc buckets, logger log.Logger) (buckets, bool) {
 
 			newBuckets[k] = newCfgBucket
 		} else {
-			level.Debug(logger).Log("msg", "bucket doesn't exist on server", "bucket", k)
+			level.Debug(c.Logger).Log("msg", "bucket doesn't exist on server", "bucket", k)
 
 			v.AclType = "new"
 			v.BucketType = "new"
 			v.LifecycleType = "new"
 
-			level.Debug(logger).Log("msg", "add new bucket to server's configuration", "value", fmt.Sprintf("%+v", v))
+			level.Debug(c.Logger).Log("msg", "add new bucket to server's configuration", "value", fmt.Sprintf("%+v", v))
 
 			newBuckets[k] = v
 			bucketsUpdated = true
@@ -806,6 +827,7 @@ func (b *Bucket) applyBucketConfig(c *Collector) error {
 		err := b.applyLifecycleConfiguration(c)
 
 		if err != nil {
+
 			return err
 		}
 
@@ -813,6 +835,7 @@ func (b *Bucket) applyBucketConfig(c *Collector) error {
 		err := b.applyLifecycleConfiguration(c)
 
 		if err != nil {
+
 			return err
 		}
 
@@ -823,51 +846,56 @@ func (b *Bucket) applyBucketConfig(c *Collector) error {
 	return nil
 }
 
-func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
-	var retryCount int
+func (b *Bucket) prepareLifecycleConfiguration(c *Collector) []types.LifecycleRule {
+	lfcRules := []types.LifecycleRule{}
+
+	if len(b.LifecycleRules) == 0 {
+
+		return lfcRules
+	}
 
 	level.Info(c.Logger).Log("msg", "update lifecycle configuration", "bucket", b.name)
 
-	lfcRules := []types.LifecycleRule{}
-	for _, lc := range b.LifecycleRules {
-		level.Debug(c.Logger).Log("msg", "show lifecycle rule", "value", fmt.Sprintf("%+v", lc))
+	for _, lcr := range b.LifecycleRules {
+		var newLCRule = types.LifecycleRule{}
 
-		if (lc.NonCurrentDays >= 0) && (b.Versioning == "suspended") {
-			level.Warn(c.Logger).Log("msg", "lifecycle rule contains non-negative value for non-current version expiration, but bucket versioning is disabled!", "bucket", b.name, "value", fmt.Sprintf("%+v", lc.Id))
+		level.Debug(c.Logger).Log("msg", "show lifecycle rule", "value", fmt.Sprintf("%+v", lcr))
 
-			lc.NonCurrentDays = -1
+		if (lcr.NonCurrentDays >= 0) && (b.Versioning == "suspended") {
+			level.Warn(c.Logger).Log("msg", "lifecycle rule contains non-negative value for non-current version expiration, but bucket versioning is disabled!", "bucket", b.name, "value", fmt.Sprintf("%+v", lcr.Id))
+
+			lcr.NonCurrentDays = -1
 		}
 
 		// Specifies the expiration for the lifecycle of the object
-		status := strcase.ToCamel(lc.Status)
-		var newLCRule = types.LifecycleRule{}
-		var lfcFilter types.LifecycleRuleFilter = &types.LifecycleRuleFilterMemberPrefix{Value: lc.Prefix}
+		status := strcase.ToCamel(lcr.Status)
 
-		if lc.NonCurrentDays >= 0 {
-			newLCRule = types.LifecycleRule{
-				Expiration: &types.LifecycleExpiration{
-					Days: lc.ExpirationDays,
-				},
-				Filter: lfcFilter,
-				ID:     aws.String(lc.Id),
-				NoncurrentVersionExpiration: &types.NoncurrentVersionExpiration{
-					NoncurrentDays: lc.NonCurrentDays,
-				},
-				Status: types.ExpirationStatus(status),
-			}
-		} else {
-			newLCRule = types.LifecycleRule{
-				Expiration: &types.LifecycleExpiration{
-					Days: lc.ExpirationDays,
-				},
-				Filter: lfcFilter,
-				ID:     aws.String(lc.Id),
-				Status: types.ExpirationStatus(status),
-			}
+		newLCRule = types.LifecycleRule{
+			Expiration: &types.LifecycleExpiration{
+				Days: lcr.ExpirationDays,
+			},
+			ID:     aws.String(lcr.Id),
+			Status: types.ExpirationStatus(status),
+		}
+
+		if len(lcr.Prefix) > 0 {
+			newLCRule.Filter = &types.LifecycleRuleFilterMemberPrefix{Value: lcr.Prefix}
+		}
+
+		if lcr.NonCurrentDays >= 0 {
+			newLCRule.NoncurrentVersionExpiration = &types.NoncurrentVersionExpiration{NoncurrentDays: lcr.NonCurrentDays}
 		}
 
 		lfcRules = append(lfcRules, newLCRule)
 	}
+
+	return lfcRules
+}
+
+func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
+	var retryCount int
+
+	lfcRules := b.prepareLifecycleConfiguration(c)
 
 	retryCount = c.RetryNum
 
@@ -876,9 +904,12 @@ func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
 
 		// Recreate/Delete lifecycle rules
 		// first: Delete old rules
+		level.Debug(c.Logger).Log("msg", "delete old lifecycle configuration", "bucket", b.name)
+
 		delLfcOut, err := deleteBucketLifecycle(c.ctx, c.CephClient, &s3.DeleteBucketLifecycleInput{
 			Bucket: aws.String(b.name),
 		})
+
 		if err != nil {
 			level.Error(c.Logger).Log("msg", "error deleting old lifecycle configuration", "bucket", b.name, "output", fmt.Sprintf("%+v", delLfcOut), "error", err.Error())
 
@@ -886,6 +917,7 @@ func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
 		}
 
 		if len(lfcRules) == 0 {
+
 			break
 		}
 		// Create new versions of rules
@@ -918,6 +950,7 @@ func (b *Bucket) applyLifecycleConfiguration(c *Collector) error {
 			time.Sleep(1 * time.Second)
 
 		} else {
+
 			break
 		}
 
@@ -937,7 +970,7 @@ func checkBucketName(b string) error {
 	}
 
 	// search blank strings
-	re = regexp.MustCompile(`^$`)
+	re = regexp.MustCompile(`^[[:blank:]]*?$`)
 
 	if re.MatchString(b) {
 		// report blank string as bucket name
@@ -960,6 +993,31 @@ func checkBucketName(b string) error {
 	} else {
 		// return error with description of bucket naming rules
 		return newBucketNameError()
+	}
+}
+
+func checkBucketNamePostfix(bucketName string, c *Collector) string {
+
+	matchPattern := fmt.Sprintf("%s$", c.BucketsPostfix)
+	re := regexp.MustCompile(matchPattern)
+
+	if len(c.BucketsPostfix) == 0 {
+
+		return bucketName
+	}
+
+	if re.MatchString(bucketName) {
+		level.Debug(c.Logger).Log("msg", "bucket name contains postfix. Rename for configuration", "bucket", bucketName, "regexp_postfix", matchPattern)
+
+		// Create name without postfix
+		bucketName = re.ReplaceAllString(bucketName, "")
+		level.Debug(c.Logger).Log("msg", "new bucket name", "value", bucketName)
+
+		return bucketName
+	} else {
+		level.Warn(c.Logger).Log("msg", "bucket name doesn't contain postfix", "bucket", bucketName, "regexp_postfix", matchPattern)
+
+		return bucketName
 	}
 }
 
@@ -998,39 +1056,13 @@ func getBucketDetailsToMap(cephBucket types.Bucket, c *Collector) Bucket {
 		level.Debug(c.Logger).Log("msg", "error get lifecycle configuration", "bucket", b.name, "error", err.Error())
 	}
 
+	// set bucket name without prefix
 	if len(c.BucketsPostfix) > 0 {
-		// create bucket name without postfix
+		// set bucket name without postfix
 		level.Debug(c.Logger).Log("msg", "create bucket name without postfix", "bucket", *cephBucket.Name, "postfix", c.BucketsPostfix)
-
-		b.name = checkBucketNamePostfix(cephBucket, c)
 	}
+
+	b.name = checkBucketNamePostfix(*cephBucket.Name, c)
 
 	return b
-}
-
-func checkBucketNamePostfix(bucket types.Bucket, c *Collector) string {
-	var bucketName string
-
-	matchPattern := fmt.Sprintf("%s$", c.BucketsPostfix)
-	re := regexp.MustCompile(matchPattern)
-
-	if len(c.BucketsPostfix) > 0 {
-		if re.MatchString(*bucket.Name) {
-			level.Debug(c.Logger).Log("msg", "bucket name contains postfix. Rename for configuration", "bucket", *bucket.Name, "regexp postfix", matchPattern)
-
-			// Create name without postfix
-			bucketName = re.ReplaceAllString(*bucket.Name, "")
-			level.Debug(c.Logger).Log("msg", "new bucket name", "value", bucketName)
-
-			return bucketName
-		} else {
-			level.Warn(c.Logger).Log("msg", "bucket name doesn't contain postfix", "bucket", *bucket.Name, "regexp postfix", matchPattern)
-
-			bucketName = *bucket.Name
-		}
-	} else {
-		bucketName = *bucket.Name
-	}
-
-	return bucketName
 }

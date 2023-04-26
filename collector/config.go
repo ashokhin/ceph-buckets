@@ -9,61 +9,60 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func UpdateConfigFromApp(c *Collector) error {
+func (c *Collector) UpdateConfigFromApp() error {
 	var err error
-	var appBuckets []string
 	var confUpdated bool
 
-	logger := c.Logger
-
-	level.Info(logger).Log("msg", "load buckets list from application's configuration file", "file", c.AppConfigPath)
+	level.Info(c.Logger).Log("msg", "load buckets list from application's configuration file", "file", c.AppConfigPath)
 
 	// load list of buckets from '--app-config' path
-	appBuckets, err = c.loadAppConfig()
+	if err = c.loadAppConfig(); err != nil {
+		level.Error(c.Logger).Log("msg", "configuration not loaded", "error", err.Error())
 
-	if err != nil {
-		level.Warn(logger).Log("msg", "configuration not loaded", "error", err.Error())
+		return err
 	}
 
 	if c.LoggerDebug {
-		for _, bucketName := range appBuckets {
-			level.Debug(logger).Log("msg", "bucket loaded from application's configuration file", "value", bucketName)
+		for _, bucketName := range c.appBuckets {
+			level.Debug(c.Logger).Log("msg", "bucket loaded from application's configuration file", "value", bucketName)
 		}
 	}
 
-	level.Info(logger).Log("msg", "load buckets from Ceph configuration file", "file", c.CephConfigPath)
+	level.Info(c.Logger).Log("msg", "load buckets from Ceph configuration file", "file", c.CephConfigPath)
 
 	// load buckets map from '--ceph-config' path
 	if err = c.loadCephConfigFile(c.CephConfigPath); err != nil {
-		level.Warn(logger).Log("msg", "configuration not loaded", "error", err.Error())
-		level.Info(logger).Log("msg", "use blank Ceph configuration map")
+		level.Warn(c.Logger).Log("msg", "configuration not loaded", "error", err.Error())
+		level.Info(c.Logger).Log("msg", "use blank Ceph configuration map")
 	}
 
 	if c.LoggerDebug {
 		for bucketName := range c.CephBuckets {
-			level.Debug(logger).Log("msg", "bucket loaded from Ceph configuration file", "bucket", bucketName)
+			level.Debug(c.Logger).Log("msg", "bucket loaded from Ceph configuration file", "bucket", bucketName)
 		}
 	}
 
 	// Merge bucket configurations
-	level.Info(logger).Log("msg", "merge configurations from application and Ceph configuration files")
-	confUpdated = c.mergeConfigurations(appBuckets)
+	level.Info(c.Logger).Log("msg", "merge configurations from application and Ceph configuration files")
+
+	confUpdated = c.updateConfigurationFromApp()
 
 	if confUpdated {
-		level.Info(logger).Log("msg", "Ceph config was updated. Write new config into Ceph configuration file", "file", c.CephConfigPath)
+		level.Info(c.Logger).Log("msg", "Ceph config was updated. Write new config into Ceph configuration file", "file", c.CephConfigPath)
 
 		if err := c.writeCephConfig(); err != nil {
-			level.Error(logger).Log("msg", "Ceph configuration not wrote", "file", c.CephConfigPath, "error", err.Error())
+			level.Error(c.Logger).Log("msg", "Ceph configuration didn't write", "file", c.CephConfigPath, "error", err.Error())
+
 			return err
 		}
 	} else {
-		level.Info(logger).Log("msg", "new buckets not found")
+		level.Info(c.Logger).Log("msg", "new buckets not found")
 	}
 
 	return nil
 }
 
-func CreateCephConfigFile(c *Collector) error {
+func (c *Collector) CreateCephConfigFile() error {
 	var err error
 
 	level.Info(c.Logger).Log("msg", "load Ceph config from server")
@@ -78,13 +77,14 @@ func CreateCephConfigFile(c *Collector) error {
 
 	if err := c.writeCephConfig(); err != nil {
 		level.Error(c.Logger).Log("msg", "Ceph configuration not wrote", "file", c.CephConfigPath, "error", err.Error())
+
 		return err
 	}
 
 	return err
 }
 
-func ConfigureCephServer(c *Collector) (bool, error) {
+func (c *Collector) ConfigureCephServer() (bool, error) {
 	var err error
 
 	c.ctx = context.Background()
@@ -123,7 +123,7 @@ func ConfigureCephServer(c *Collector) (bool, error) {
 
 	level.Info(c.Logger).Log("msg", "compare Ceph configurations loaded from file and from server")
 
-	newSrvConfig, cfgUpdated := compareBuckets(configFromFile, configFromServer, c.Logger)
+	newSrvConfig, cfgUpdated := compareBuckets(configFromFile, configFromServer, c)
 
 	if cfgUpdated {
 		// Test and sort configuration struct
@@ -144,6 +144,7 @@ func ConfigureCephServer(c *Collector) (bool, error) {
 		if err = c.applyCephConfig(); err != nil {
 			level.Error(c.Logger).Log("msg", "apply new configuration on server was failed", "error", err.Error())
 			level.Debug(c.Logger).Log("msg", "show new configuration", "value", fmt.Sprintf("%+v", c))
+
 			return false, err
 		}
 
@@ -156,7 +157,7 @@ func ConfigureCephServer(c *Collector) (bool, error) {
 	return true, nil
 }
 
-func ParseCsvToYaml(c *Collector) error {
+func (c *Collector) ParseCsvToYaml() error {
 	var err error
 
 	level.Info(c.Logger).Log("msg", "parse CSV file and write results to YAML file", "csv-file", c.CsvFilePath, "yaml-file", c.YamlFilePath)
@@ -189,10 +190,10 @@ func ParseCsvToYaml(c *Collector) error {
 		return err
 	}
 
-	return err
+	return nil
 }
 
-func ParseYamlToCsv(c *Collector) error {
+func (c *Collector) ParseYamlToCsv() error {
 	var err error
 
 	level.Info(c.Logger).Log("msg", "parse YAML file and write results to CSV file", "yaml-file", c.YamlFilePath, "csv-file", c.CsvFilePath)
@@ -204,7 +205,7 @@ func ParseYamlToCsv(c *Collector) error {
 		return err
 	}
 
-	if err = writeBucketsToCsv(c); err != nil {
+	if err = c.writeBucketsToCsv(); err != nil {
 		level.Error(c.Logger).Log("msg", "error write YAML config to CSV file", "error", err.Error())
 
 		return err

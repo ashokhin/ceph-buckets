@@ -107,7 +107,8 @@ func main() {
 
 		collectorConfig.AppConfigPath, _ = filepath.Abs(*appAppConfig)
 		collectorConfig.CephConfigPath, _ = filepath.Abs(*appCephConfig)
-		err = collector.UpdateConfigFromApp(&collectorConfig)
+		err = collectorConfig.UpdateConfigFromApp()
+
 	case createFlags.FullCommand():
 		level.Debug(logger).Log("command", createFlags.FullCommand())
 		level.Debug(logger).Log("flag", "--ceph-config", "value", *createCephConfig)
@@ -117,7 +118,7 @@ func main() {
 		collectorConfig.CephConfigPath, _ = filepath.Abs(*createCephConfig)
 		collectorConfig.CephCredentialsPath, _ = filepath.Abs(*createCredentials)
 		collectorConfig.BucketsPostfix = *createBucketPostfix
-		err = collector.CreateCephConfigFile(&collectorConfig)
+		err = collectorConfig.CreateCephConfigFile()
 	case cfgFlags.FullCommand():
 		level.Debug(logger).Log("command", cfgFlags.FullCommand())
 		level.Debug(logger).Log("flag", "--ceph-config", "value", *cfgCephConfig)
@@ -127,13 +128,13 @@ func main() {
 		collectorConfig.CephConfigPath, _ = filepath.Abs(*cfgCephConfig)
 		collectorConfig.CephCredentialsPath, _ = filepath.Abs(*cfgCredentials)
 		collectorConfig.BucketsPostfix = *cfgBucketPostfix
-		cfgUpdated, err = collector.ConfigureCephServer(&collectorConfig)
+		cfgUpdated, err = collectorConfig.ConfigureCephServer()
 
 		if cfgUpdated {
 			level.Info(logger).Log("msg", "server's configuration updated successfully")
 			level.Info(logger).Log("msg", "update local config from server")
 
-			err = collector.CreateCephConfigFile(&collectorConfig)
+			err = collectorConfig.CreateCephConfigFile()
 		}
 	case csv2yamlFlags.FullCommand():
 		level.Debug(logger).Log("command", csv2yamlFlags.FullCommand())
@@ -146,7 +147,7 @@ func main() {
 		collectorConfig.YamlFilePath, _ = filepath.Abs(*csv2yamlYamlFile)
 		collectorConfig.CsvFieldSeparator = *csv2yamlFieldsSeparator
 		collectorConfig.CsvFieldsNum = *csv2yamlFieldsPerRecord
-		err = collector.ParseCsvToYaml(&collectorConfig)
+		err = collectorConfig.ParseCsvToYaml()
 	case yaml2csvFlags.FullCommand():
 		level.Debug(logger).Log("command", yaml2csvFlags.FullCommand())
 		level.Debug(logger).Log("flag", "--yaml-file", "value", *yaml2csvYamlFile)
@@ -156,7 +157,7 @@ func main() {
 		collectorConfig.YamlFilePath, _ = filepath.Abs(*yaml2csvYamlFile)
 		collectorConfig.CsvFilePath, _ = filepath.Abs(*yaml2csvCsvFile)
 		collectorConfig.CsvFieldSeparator = *yaml2csvCsvFieldsSeparator
-		err = collector.ParseYamlToCsv(&collectorConfig)
+		err = collectorConfig.ParseYamlToCsv()
 	}
 
 	if err != nil {

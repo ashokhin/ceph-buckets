@@ -3,8 +3,11 @@ package collector
 import (
 	"bufio"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,55 +42,73 @@ type Collector struct {
 	CephClient          *s3.Client
 	ParallelThreads     int
 	RetryNum            int
+	appBuckets          []string
 	ctx                 context.Context
 }
 
-func (conf *Collector) setDefaults() {
-	conf.DisableSSL = false
-	conf.AwsRegion = "us-east-1"
+func (c *Collector) setDefaults() {
+	c.DisableSSL = false
+	c.AwsRegion = "us-east-1"
+}
+
+func (c *Collector) loadCredentials() error {
+	if err := loadYamlFile(c.CephCredentialsPath, &c, c.Logger); err != nil {
+
+		return err
+	}
+
+	return nil
 }
 
 func (c *Collector) createCephClient() error {
 	var err error
-	var cephUrl string
 	var cfg aws.Config
 
+	level.Debug(c.Logger).Log("msg", "set defaults")
+
+	c.setDefaults()
+
 	level.Debug(c.Logger).Log("msg", "load Ceph credentials from file", "file", c.CephCredentialsPath)
+
 	if err := c.loadCredentials(); err != nil {
 		level.Warn(c.Logger).Log("msg", "error load Ceph credentials", "error", err.Error())
-		level.Warn(c.Logger).Log("msg", "set defaults")
-		c.setDefaults()
 	}
+
+	err = nil
 
 	level.Debug(c.Logger).Log("msg", "create Ceph client")
-
-	if c.DisableSSL {
-		cephUrl = fmt.Sprintf("http://%s/", c.EndpointUrl)
-	} else {
-		cephUrl = fmt.Sprintf("https://%s/", c.EndpointUrl)
-	}
-
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			PartitionID:       "aws",
-			URL:               cephUrl,
-			SigningRegion:     c.AwsRegion,
-			HostnameImmutable: c.ForcePath,
-		}, nil
-	})
 
 	switch {
 	// if endpoint present than connect to that endpoint
 	case c.EndpointUrl != "":
-		cfg, err = config.LoadDefaultConfig(c.ctx, config.WithEndpointResolverWithOptions(customResolver),
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.AwsAccessKey,
-				c.AwsSecretKey, "")))
-		// if credentials present than connect with that credentials
+		var cephUrl string
+
+		if c.DisableSSL {
+			cephUrl = fmt.Sprintf("http://%s/", c.EndpointUrl)
+		} else {
+			cephUrl = fmt.Sprintf("https://%s/", c.EndpointUrl)
+		}
+
+		customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+			return aws.Endpoint{
+				PartitionID:       "aws",
+				URL:               cephUrl,
+				SigningRegion:     c.AwsRegion,
+				HostnameImmutable: c.ForcePath,
+			}, nil
+		})
+
+		cfg, err = config.LoadDefaultConfig(c.ctx,
+			config.WithEndpointResolverWithOptions(customResolver),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.AwsAccessKey, c.AwsSecretKey, "")),
+		)
+	// if credentials present than connect with that credentials
 	case (c.AwsAccessKey != "") && (c.AwsSecretKey != ""):
-		cfg, err = config.LoadDefaultConfig(c.ctx, config.WithRegion(c.AwsRegion),
-			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.AwsAccessKey,
-				c.AwsSecretKey, "")))
-		// otherwise try to load credentials from '~/.aws/credentials'
+		cfg, err = config.LoadDefaultConfig(c.ctx,
+			config.WithRegion(c.AwsRegion),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.AwsAccessKey, c.AwsSecretKey, "")),
+		)
+	// otherwise try to load credentials from '~/.aws/credentials'
 	default:
 		cfg, err = config.LoadDefaultConfig(c.ctx, config.WithRegion(c.AwsRegion))
 	}
@@ -100,7 +121,7 @@ func (c *Collector) createCephClient() error {
 
 	c.CephClient = s3.NewFromConfig(cfg)
 
-	return err
+	return nil
 }
 
 func (c *Collector) loadCephConfigFile(f string) error {
@@ -122,8 +143,6 @@ func (c *Collector) loadCephConfigFile(f string) error {
 			case *errBucketName:
 				level.Warn(c.Logger).Log("msg", "bucket name error", "bucket", bucketName)
 				level.Debug(c.Logger).Log("msg", "name not suitable for bucket naming rules", "error", err.Error(), "bucket", bucketName)
-			case *errCommentString:
-				level.Debug(c.Logger).Log("msg", "string skipped as a comment string", "value", bucketName)
 			}
 			continue
 		} else {
@@ -137,11 +156,11 @@ func (c *Collector) loadCephConfigFile(f string) error {
 	return nil
 }
 
-func (c *Collector) mergeConfigurations(appBuckets []string) bool {
+func (c *Collector) updateConfigurationFromApp() bool {
 	var needUpdate bool
 	var b Bucket
 
-	for _, appBucket := range appBuckets {
+	for _, appBucket := range c.appBuckets {
 
 		if _, ok := c.CephBuckets[appBucket]; ok {
 			level.Debug(c.Logger).Log("msg", "bucket already in Ceph configuration file. skip", "bucket", appBucket, "file", c.CephConfigPath)
@@ -165,7 +184,7 @@ func (c *Collector) writeCephConfig() error {
 	level.Debug(c.Logger).Log("msg", "write Ceph config into YAML file", "file", c.CephConfigPath)
 
 	if err := writeYamlFile(c.CephConfigPath, c.CephBuckets, c.Logger); err != nil {
-		level.Error(c.Logger).Log("msg", "error write Ceph configuration", "error", err)
+		level.Error(c.Logger).Log("msg", "error write Ceph configuration", "error", err.Error())
 
 		return err
 	}
@@ -173,16 +192,15 @@ func (c *Collector) writeCephConfig() error {
 	return nil
 }
 
-func (c *Collector) loadAppConfig() ([]string, error) {
+func (c *Collector) loadAppConfig() error {
 	var err error
-	var appBuckets []string
 
 	fc, err := os.Open(c.AppConfigPath)
 
 	if err != nil {
 		level.Error(c.Logger).Log("msg", "error open file", "file", c.AppConfigPath, "error", err.Error())
 
-		return appBuckets, err
+		return err
 	}
 
 	scanner := bufio.NewScanner(fc)
@@ -198,9 +216,9 @@ func (c *Collector) loadAppConfig() ([]string, error) {
 			switch err.(type) {
 			case *errBucketName:
 				level.Warn(c.Logger).Log("msg", "bucket name error", "bucket", s)
-				level.Debug(c.Logger).Log("msg", "bucket not suitable for bucket naming rules", "error", err.Error(), "bucket", s)
+				level.Debug(c.Logger).Log("msg", "bucket not suitable for bucket naming rules", "error", err.Error(), "bucket", s, "line", pos)
 			case *errCommentString:
-				level.Debug(c.Logger).Log("msg", "string skipped as a comment string", "value", s)
+				level.Debug(c.Logger).Log("msg", "string skipped as a comment string", "value", s, "line", pos)
 			case *errBlankString:
 				level.Debug(c.Logger).Log("msg", "string skipped as a blank string", "line", pos)
 			}
@@ -208,18 +226,8 @@ func (c *Collector) loadAppConfig() ([]string, error) {
 		} else {
 			level.Debug(c.Logger).Log("msg", "bucket found in application's configuration file", "bucket", s, "file", c.AppConfigPath)
 
-			appBuckets = append(appBuckets, s)
+			c.appBuckets = append(c.appBuckets, s)
 		}
-
-	}
-
-	return appBuckets, nil
-}
-
-func (c *Collector) loadCredentials() error {
-	if err := loadYamlFile(c.CephCredentialsPath, &c, c.Logger); err != nil {
-
-		return err
 	}
 
 	return nil
@@ -298,7 +306,6 @@ func (c *Collector) bucketCollector(wg *sync.WaitGroup, id int, cephBuckets <-ch
 	collectorName := fmt.Sprintf("bucketCollector-%d", id)
 
 	level.Debug(c.Logger).Log("msg", "bucket collector started", "id", collectorName)
-
 	// read cephBuckets as 'types.Bucket' type from channel
 	for cephBucket := range cephBuckets {
 		level.Debug(c.Logger).Log("msg", "get bucket details", "id", collectorName, "bucket", cephBucket.Name)
@@ -336,4 +343,59 @@ func (c *Collector) applyCephConfig() error {
 	}
 
 	return errGroup.Wait()
+}
+
+func (c *Collector) writeBucketsToCsv() error {
+	var err error
+
+	// Create slice for configuration sorting
+	keys := make([]string, 0, len(c.CephBuckets))
+
+	for k := range c.CephBuckets {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	file, err := os.OpenFile(c.CsvFilePath, os.O_RDWR|os.O_CREATE, 0644)
+
+	if err != nil {
+		level.Error(c.Logger).Log("msg", "error open CSV file", "file", c.CsvFilePath, "error", err.Error())
+
+		return err
+	}
+
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	writer.Comma = []rune(c.CsvFieldSeparator)[0]
+
+	for index, bucketName := range keys {
+		if index == 0 {
+			// create and write CSV-header first
+			csvHeader := []string{"bucket", "read", "write"}
+
+			level.Debug(c.Logger).Log("msg", "write CSV header", "value", fmt.Sprintf("%s", csvHeader))
+
+			if err := writer.Write(csvHeader); err != nil {
+				level.Error(c.Logger).Log("msg", "error write CSV header to file", "error", err.Error())
+
+				return err
+			}
+		}
+
+		bucketConfig := c.CephBuckets[bucketName]
+		bucketString := []string{bucketName, strings.Join(bucketConfig.Acl.Grants.Read, " "), strings.Join(bucketConfig.Acl.Grants.Write, " ")}
+
+		level.Debug(c.Logger).Log("msg", "write CSV string", "record", fmt.Sprintf("%s", bucketString))
+
+		if err := writer.Write(bucketString); err != nil {
+			level.Error(c.Logger).Log("msg", "error write CSV record to file", "record", bucketString, "file", c.CsvFilePath, "error", err.Error())
+
+			return err
+		}
+	}
+
+	return err
 }
