@@ -41,6 +41,6 @@ build:
 			-X main.appRevision=${APP_REVISION} \
 			-X main.appBuildUser=${APP_USER}@${APP_HOST} \
 			-X main.appBuildDate=${APP_BUILD_DATE} \
-			-X main.AppOrigin=${APP_ORIGIN} \
+			-X 'main.appOrigin=${APP_ORIGIN}' \
 		" \
 		-o $(BIN_NAME) .
