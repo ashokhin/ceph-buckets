@@ -31,7 +31,6 @@ jobs:
 
       - name: Check version
         run: |
-          chmod +x ./ceph-buckets
           ./ceph-buckets --version
 
       - name: Create archive with binary
