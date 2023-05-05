@@ -57,7 +57,7 @@ jobs:
 
       - name: Create release
         id: create_release
-        uses: actions/release-action@v1
+        uses: ncipollo/release-action@v1
         with:
           artifacts: "ceph-buckets-${{ env.release_meta_release_tag }}-linux-amd64.tar.gz"
           tag: ${{ env.release_meta_release_tag }}
