@@ -12,6 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Collect release metadata
+        id: release_meta
+        run: |
+          release_tag=$(basename "${{ github.ref }}")
+          release_date=$(date -u '+%F')
+          release_name="${release_date} / ${release_tag}"
+          echo "release_meta_release_tag=${release_tag}" >> "$GITHUB_ENV"
+          echo "release_meta_release_name=${release_name}" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
@@ -26,13 +35,13 @@ jobs:
           ./ceph-buckets --version
 
       - name: Create archive with binary
-        run: tar -cvzf ceph-buckets.tar.gz ceph-buckets
+        run: tar -cvzf ceph-buckets-${{ env.release_meta_release_tag }}-linux-amd64.tar.gz ceph-buckets
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: build
-          path: ceph-buckets.tar.gz
+          path: ceph-buckets-${{ env.release_meta_release_tag }}-linux-amd64.tar.gz
 
   release:
     name: Create GitHub release
@@ -40,14 +49,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Create release name
-        id: release_meta
-        run: |
-          release_tag=$(basename "${{ github.ref }}")
-          release_date=$(date -u '+%F')
-          release_name="${release_date} / ${release_tag}"
-          echo "release_meta_release_tag=${release_tag}" >> "$GITHUB_ENV"
-          echo "release_meta_release_name=${rel_name}" >> "$GITHUB_ENV"
 
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -56,22 +57,13 @@ jobs:
 
       - name: Create release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/release-action@v1
         with:
-          tag_name: ${{ env.release_meta_release_tag }}
-          release_name: ${{ env.release_meta_release_name }}
+          artifacts: "ceph-buckets-${{ env.release_meta_release_tag }}-linux-amd64.tar.gz"
+          tag: ${{ env.release_meta_release_tag }}
+          name: ${{ env.release_meta_release_name }}
+          allowUpdates: true
           draft: false
+          makeLatest: true
           prerelease: false
-
-      - name: Upload build
-        id: upload_build
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./ceph-buckets.tar.gz
-          asset_name: ceph-buckets-${{ env.release_meta_release_tag }}-linux-amd64.tar.gz
-          asset_content_type: application/gzip
+          replacesArtifacts: true
