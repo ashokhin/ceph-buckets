@@ -50,6 +50,15 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Collect release metadata
+        id: release_meta
+        run: |
+          release_tag=$(basename "${{ github.ref }}")
+          release_date=$(date -u '+%F')
+          release_name="${release_date} / ${release_tag}"
+          echo "release_meta_release_tag=${release_tag}" >> "$GITHUB_ENV"
+          echo "release_meta_release_name=${release_name}" >> "$GITHUB_ENV"
+
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
